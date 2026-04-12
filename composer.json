@@ -55,7 +55,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#fbbf24\" \"php artisan serve --host 0.0.0.0 --port 8000\" \"php artisan queue:listen --tries=1\" \"npm run dev --host\" \"npm run socket-server\" --names='server,queue,vite,socket'"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#fbbf24\" \"php artisan serve --host 0.0.0.0 --port 8000\" \"php artisan queue:listen --tries=1\" \"npm run dev --host\" --names='server,queue,vite'"
         ],
         "lint": [
             "pint --parallel"
@@ -92,6 +92,12 @@
         ],
         "pre-package-uninstall": [
             "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+        ],
+        "vercel": [
+            "npm run build",
+            "mkdir -p /vercel/output/static",
+            "cp -r public/build /vercel/output/static/",
+            "php artisan migrate --force"
         ]
     },
     "extra": {
