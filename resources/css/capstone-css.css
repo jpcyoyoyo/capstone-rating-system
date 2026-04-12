@@ -1,0 +1,1102 @@
+/**
+ * capstone-forms.css
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Shared theme for all Capstone/Research evaluation forms in Laravel.
+ * Covers: Peer & Self Evaluation, Oral Presentation Evaluation,
+ *         and Proposal Defense Evaluation.
+ *
+ * Font import (add to your layout blade or app.css):
+ *   @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Source+Sans+3:wght@300;400;600;700&display=swap');
+ *
+ * Usage in Blade:
+ *   <link rel="stylesheet" href="{{ asset('css/capstone-forms.css') }}">
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+
+/* ============================================================
+   1. DESIGN TOKENS (CSS Custom Properties)
+   ============================================================ */
+
+:root {
+    /* Core palette */
+    --cf-ink:          #1a1a2e;   /* primary text */
+    --cf-deep:         #16213e;   /* darkest navy, hover states */
+    --cf-accent:       #0f3460;   /* primary accent / interactive */
+    --cf-gold:         #c9a84c;   /* decorative gold */
+    --cf-gold-light:   #f0d98a;   /* light gold, unused but available */
+
+    /* Surfaces */
+    --cf-bg:           #f0ebe0;   /* page background */
+    --cf-surface:      #fdfaf4;   /* subtle tinted surface */
+    --cf-card:         #ffffff;   /* card background */
+
+    /* Borders & inputs */
+    --cf-border:       #d4c9a8;
+    --cf-input-bg:     #faf8f2;
+    --cf-input-focus:  #fffef8;
+
+    /* Text shades */
+    --cf-muted:        #6b6b6b;
+
+    /* Rating colours (peer/self form) */
+    --cf-rating-1:     #c0392b;   /* poor */
+    --cf-rating-2:     #e67e22;   /* average */
+    --cf-rating-3:     #27ae60;   /* outstanding */
+
+    /* Validation */
+    --cf-error:        #c0392b;
+    --cf-error-bg:     #fff5f5;
+
+    /* Spacing scale */
+    --cf-radius-sm:    4px;
+    --cf-radius:       6px;
+    --cf-radius-lg:    8px;
+}
+
+
+/* ============================================================
+   2. RESET & BASE
+   ============================================================ */
+
+.cf-scope *,
+.cf-scope *::before,
+.cf-scope *::after {
+    box-sizing: border-box;
+}
+
+/* Apply to <body> or a top-level wrapper when embedding in Laravel */
+.cf-page {
+    font-family: 'Source Sans 3', sans-serif;
+    background: var(--cf-bg);
+    color: var(--cf-ink);
+    min-height: 100vh;
+}
+
+
+/* ============================================================
+   3. LAYOUT — SCREEN WRAPPER
+   ============================================================ */
+
+.cf-wrapper {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+}
+
+/* Narrow variant for single-column forms (proposal defense) */
+.cf-wrapper--narrow {
+    max-width: 800px;
+}
+
+
+/* ============================================================
+   4. FORM HEADER
+   ============================================================ */
+
+.cf-header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+}
+
+.cf-header__eyebrow {
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 300;
+    font-size: 0.75rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--cf-gold);
+    margin-bottom: 0.5rem;
+}
+
+.cf-header__title {
+    font-family: 'Libre Baskerville', serif;
+    font-size: clamp(1.4rem, 4vw, 2rem);
+    color: var(--cf-deep);
+    line-height: 1.3;
+    font-weight: 700;
+    margin: 0;
+}
+
+.cf-header__subtitle {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--cf-muted);
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.6;
+}
+
+.cf-gold-rule {
+    width: 60px;
+    height: 2px;
+    background: var(--cf-gold);
+    margin: 1rem auto;
+    border: none;
+}
+
+
+/* ============================================================
+   5. CARD
+   ============================================================ */
+
+.cf-card {
+    background: var(--cf-card);
+    border-radius: var(--cf-radius-lg);
+    border: 1px solid var(--cf-border);
+    padding: 1.75rem 2rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.cf-card__title {
+    font-family: 'Libre Baskerville', serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--cf-accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--cf-border);
+    padding-bottom: 0.75rem;
+    margin-bottom: 1.25rem;
+    margin-top: 0;
+}
+
+
+/* ============================================================
+   6. FORM FIELDS
+   ============================================================ */
+
+/* Grid rows */
+.cf-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.cf-field-row--triple {
+    grid-template-columns: 2fr 1fr 1fr;
+}
+
+.cf-field-row--full {
+    grid-template-columns: 1fr;
+}
+
+/* Individual field */
+.cf-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+/* Labels */
+.cf-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--cf-muted);
+}
+
+/* Text / date / time inputs */
+.cf-input {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 0.95rem;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--cf-border);
+    border-radius: 5px;
+    background: var(--cf-input-bg);
+    color: var(--cf-ink);
+    width: 100%;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.cf-input:focus {
+    outline: none;
+    border-color: var(--cf-gold);
+    background: var(--cf-input-focus);
+    box-shadow: 0 0 0 3px rgba(201, 168, 76, 0.15);
+}
+
+/* Numeric score input */
+.cf-score-input {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 700;
+    width: 68px;
+    padding: 0.4rem 0.35rem;
+    border: 1px solid var(--cf-border);
+    border-radius: var(--cf-radius-sm);
+    background: var(--cf-input-bg);
+    color: var(--cf-accent);
+    text-align: center;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    -moz-appearance: textfield;
+}
+
+.cf-score-input::-webkit-inner-spin-button,
+.cf-score-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+}
+
+.cf-score-input:focus {
+    outline: none;
+    border-color: var(--cf-gold);
+    background: var(--cf-input-focus);
+    box-shadow: 0 0 0 3px rgba(201, 168, 76, 0.15);
+}
+
+.cf-score-input--error,
+.cf-score-input.over-max {
+    border-color: var(--cf-error);
+    background: var(--cf-error-bg);
+    color: var(--cf-error);
+}
+
+
+/* ============================================================
+   7. MEMBER CARDS GRID
+   ============================================================ */
+
+.cf-members-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.85rem;
+}
+
+.cf-member-card {
+    border: 1px solid var(--cf-border);
+    border-radius: var(--cf-radius);
+    padding: 0.85rem;
+    background: var(--cf-input-bg);
+}
+
+.cf-member-card--self {
+    border-color: var(--cf-gold);
+    background: #fffdf5;
+}
+
+.cf-member-card__label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--cf-gold);
+    margin-bottom: 0.4rem;
+}
+
+.cf-member-card .cf-input {
+    font-size: 0.9rem;
+    padding: 0.45rem 0.65rem;
+    border-radius: var(--cf-radius-sm);
+    background: #fff;
+}
+
+.cf-member-card .cf-input:focus {
+    box-shadow: 0 0 0 2px rgba(201, 168, 76, 0.15);
+}
+
+
+/* ============================================================
+   8. RATING SCALE LEGEND  (peer/self form)
+   ============================================================ */
+
+.cf-scale-legend {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+
+.cf-scale-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+    color: var(--cf-ink);
+}
+
+.cf-scale-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.cf-scale-badge--1 { background: var(--cf-rating-1); }
+.cf-scale-badge--2 { background: var(--cf-rating-2); }
+.cf-scale-badge--3 { background: var(--cf-rating-3); }
+
+
+/* ============================================================
+   9. TABLE — SHARED BASE
+   ============================================================ */
+
+.cf-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.cf-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 580px;
+}
+
+/* Column headers */
+.cf-table thead th {
+    background: var(--cf-accent);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 0.75rem;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.cf-table thead th:first-child {
+    text-align: left;
+    border-radius: var(--cf-radius) 0 0 0;
+}
+
+.cf-table thead th:last-child {
+    border-radius: 0 var(--cf-radius) 0 0;
+}
+
+/* Body rows */
+.cf-table tbody tr {
+    transition: background 0.15s;
+}
+
+.cf-table tbody tr:nth-child(even) {
+    background: #faf8f2;
+}
+
+.cf-table tbody tr:hover {
+    background: #fff8e8;
+}
+
+.cf-table tbody td {
+    padding: 0.7rem 0.75rem;
+    border-bottom: 1px solid #ece8da;
+    font-size: 0.88rem;
+    vertical-align: middle;
+    line-height: 1.4;
+}
+
+/* Total row */
+.cf-table tbody tr.cf-table__total-row td {
+    font-weight: 700;
+    font-family: 'Libre Baskerville', serif;
+    background: #f5f0e0;
+    font-size: 0.85rem;
+    border-top: 2px solid var(--cf-gold);
+}
+
+/* Group score row (oral presentation form) */
+.cf-table tbody tr.cf-table__group-row td {
+    font-weight: 700;
+    font-family: 'Libre Baskerville', serif;
+    background: #eae3cc;
+    font-size: 0.85rem;
+    border-top: 1px solid var(--cf-gold);
+}
+
+/* Section header rows (proposal defense form) */
+.cf-table tr.cf-table__section-row td {
+    background: var(--cf-accent);
+    color: #fff;
+    font-family: 'Libre Baskerville', serif;
+    font-weight: 700;
+    font-size: 0.82rem;
+    letter-spacing: 0.06em;
+    padding: 0.6rem 0.85rem;
+    text-transform: uppercase;
+}
+
+.cf-table tr.cf-table__section-row td .cf-section-note {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 400;
+    font-style: italic;
+    font-family: 'Source Sans 3', sans-serif;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-top: 2px;
+    opacity: 0.85;
+}
+
+/* Score / rating cell alignment */
+.cf-table td.cf-table__score-cell {
+    text-align: center;
+}
+
+/* Range label inside a cell */
+.cf-crit-range {
+    display: inline-block;
+    font-size: 0.75rem;
+    color: var(--cf-gold);
+    font-weight: 600;
+    margin-left: 4px;
+}
+
+/* Small italic note under criterion text */
+.cf-item-note {
+    display: block;
+    font-size: 0.77rem;
+    color: var(--cf-muted);
+    font-style: italic;
+    margin-top: 2px;
+}
+
+/* Max score hint in total row */
+.cf-max-hint {
+    font-size: 0.72rem;
+    color: var(--cf-muted);
+    font-weight: 400;
+    font-family: 'Source Sans 3', sans-serif;
+    margin-left: 6px;
+}
+
+
+/* ============================================================
+   10. RADIO RATING BUTTONS  (peer/self form)
+   ============================================================ */
+
+.cf-radio-group {
+    display: flex;
+    justify-content: center;
+    gap: 0.3rem;
+}
+
+.cf-radio-option input[type="radio"] {
+    display: none;
+}
+
+.cf-radio-option label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid var(--cf-border);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--cf-muted);
+    transition: all 0.15s;
+    text-transform: none;
+    letter-spacing: 0;
+    user-select: none;
+}
+
+.cf-radio-option label:hover {
+    border-color: var(--cf-gold);
+    color: var(--cf-accent);
+    background: #fffdf0;
+}
+
+.cf-radio-option input[type="radio"]:checked + label {
+    border-color: transparent;
+    color: #fff;
+}
+
+/* Per-position colouring — mirrors the 1/2/3 rating scale */
+.cf-radio-option:nth-child(1) input[type="radio"]:checked + label { background: var(--cf-rating-1); }
+.cf-radio-option:nth-child(2) input[type="radio"]:checked + label { background: var(--cf-rating-2); }
+.cf-radio-option:nth-child(3) input[type="radio"]:checked + label { background: var(--cf-rating-3); }
+
+
+/* ============================================================
+   11. SCORE DISPLAY BADGES
+   ============================================================ */
+
+/* Outline style — used in peer/self form totals */
+.cf-total-display {
+    display: inline-block;
+    min-width: 48px;
+    padding: 0.3rem 0.5rem;
+    background: #fff;
+    border: 1px solid var(--cf-border);
+    border-radius: var(--cf-radius-sm);
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--cf-accent);
+}
+
+/* Filled style — used for totals / group score in oral & defense forms */
+.cf-total-display--filled {
+    background: var(--cf-accent);
+    color: #fff;
+    border-color: transparent;
+    min-width: 56px;
+    font-size: 1rem;
+    border-radius: 5px;
+    padding: 0.35rem 0.7rem;
+}
+
+/* Pill style — group average score */
+.cf-group-score-display {
+    display: inline-block;
+    padding: 0.35rem 0.75rem;
+    background: var(--cf-accent);
+    color: #fff;
+    border-radius: var(--cf-radius-sm);
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+
+/* ============================================================
+   12. PANEL DECISION  (proposal defense form)
+   ============================================================ */
+
+.cf-decision-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.65rem;
+}
+
+.cf-decision-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 2px solid var(--cf-border);
+    border-radius: var(--cf-radius);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    background: var(--cf-input-bg);
+}
+
+.cf-decision-option:hover {
+    border-color: var(--cf-gold);
+    background: #fffdf0;
+}
+
+.cf-decision-option input[type="radio"] {
+    display: none;
+}
+
+.cf-tick-box {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--cf-border);
+    border-radius: var(--cf-radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    color: transparent;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.cf-decision-option input[type="radio"]:checked ~ .cf-tick-box {
+    background: var(--cf-accent);
+    border-color: var(--cf-accent);
+    color: #fff;
+}
+
+.cf-decision-option:has(input[type="radio"]:checked) {
+    border-color: var(--cf-accent);
+    background: #f0f5ff;
+}
+
+.cf-decision-label {
+    font-size: 0.88rem;
+    color: var(--cf-ink);
+    line-height: 1.3;
+    transition: color 0.15s;
+}
+
+.cf-decision-option input[type="radio"]:checked ~ .cf-decision-label {
+    color: var(--cf-accent);
+    font-weight: 700;
+}
+
+
+/* ============================================================
+   13. RATED BY / SIGNATURE BLOCK  (proposal defense form)
+   ============================================================ */
+
+.cf-rated-by {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    border-top: 1px solid var(--cf-border);
+    padding-top: 1.25rem;
+    margin-top: 1.5rem;
+    text-align: center;
+}
+
+.cf-rated-by .cf-input {
+    max-width: 320px;
+    text-align: center;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+    background: transparent;
+    font-size: 1rem;
+    font-weight: 600;
+    padding-bottom: 4px;
+}
+
+.cf-rated-by .cf-input:focus {
+    box-shadow: none;
+    border-bottom-color: var(--cf-gold);
+    background: transparent;
+}
+
+.cf-rated-by__label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cf-muted);
+}
+
+.cf-rated-by__sub {
+    font-size: 0.75rem;
+    color: var(--cf-muted);
+    font-style: italic;
+}
+
+
+/* ============================================================
+   14. UTILITY
+   ============================================================ */
+
+.cf-note {
+    font-style: italic;
+    font-size: 0.8rem;
+    color: var(--cf-muted);
+    margin-top: 0.75rem;
+}
+
+/* Hide on screen; shown only in print JS injection */
+.cf-print-only {
+    display: none;
+}
+
+/* Show on screen; hidden when printing */
+.cf-screen-only {
+    /* overridden in @media print below */
+}
+
+
+/* ============================================================
+   15. ACTIONS & BUTTONS
+   ============================================================ */
+
+.cf-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 2rem;
+}
+
+.cf-btn {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.8rem 2rem;
+    border-radius: 5px;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.cf-btn--primary {
+    background: var(--cf-accent);
+    color: #fff;
+}
+
+.cf-btn--primary:hover {
+    background: var(--cf-deep);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 52, 96, 0.3);
+    color: #fff;
+}
+
+.cf-btn--secondary {
+    background: transparent;
+    color: var(--cf-accent);
+    border: 2px solid var(--cf-accent);
+}
+
+.cf-btn--secondary:hover {
+    background: var(--cf-accent);
+    color: #fff;
+}
+
+.cf-btn--danger {
+    background: transparent;
+    color: var(--cf-error);
+    border: 2px solid var(--cf-error);
+}
+
+.cf-btn--danger:hover {
+    background: var(--cf-error);
+    color: #fff;
+}
+
+
+/* ============================================================
+   16. MODAL
+   ============================================================ */
+
+.cf-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.cf-modal-overlay.active {
+    display: flex;
+}
+
+.cf-modal {
+    background: var(--cf-card);
+    border-radius: var(--cf-radius-lg);
+    padding: 2rem;
+    max-width: 400px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.cf-modal__title {
+    font-family: 'Libre Baskerville', serif;
+    font-size: 1.2rem;
+    color: var(--cf-deep);
+    margin-bottom: 0.5rem;
+    margin-top: 0;
+}
+
+.cf-modal__body {
+    font-size: 0.875rem;
+    color: var(--cf-muted);
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+}
+
+.cf-modal__actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+}
+
+
+/* ============================================================
+   17. RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 600px) {
+    .cf-card {
+        padding: 1.25rem 1rem;
+    }
+
+    .cf-field-row,
+    .cf-field-row--triple {
+        grid-template-columns: 1fr;
+    }
+
+    .cf-decision-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cf-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .cf-btn {
+        justify-content: center;
+    }
+}
+
+
+/* ============================================================
+   18. PRINT STYLES
+   ============================================================ */
+
+@media print {
+    * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* Reset page chrome */
+    .cf-page {
+        background: #fff;
+        font-family: 'Times New Roman', serif;
+        font-size: 10pt;
+        color: #000;
+    }
+
+    .cf-wrapper,
+    .cf-wrapper--narrow {
+        max-width: 100%;
+        padding: 0;
+        margin: 0;
+    }
+
+    /* Header */
+    .cf-header {
+        margin-bottom: 10pt;
+    }
+
+    .cf-header__eyebrow,
+    .cf-header__subtitle,
+    .cf-gold-rule {
+        display: none;
+    }
+
+    .cf-header__title {
+        font-size: 13pt;
+        font-family: 'Times New Roman', serif;
+        font-weight: bold;
+        color: #000;
+        text-align: center;
+        border-bottom: 2px solid #000;
+        padding-bottom: 6pt;
+    }
+
+    /* Cards */
+    .cf-card {
+        box-shadow: none;
+        border: none;
+        padding: 0;
+        margin-bottom: 10pt;
+        border-radius: 0;
+    }
+
+    .cf-card__title {
+        font-size: 9pt;
+        font-family: 'Times New Roman', serif;
+        color: #000;
+        border-bottom: 1px solid #000;
+        padding-bottom: 3pt;
+        margin-bottom: 8pt;
+    }
+
+    /* Hide interactive/screen-only elements */
+    .cf-screen-only,
+    .cf-actions,
+    .cf-modal-overlay {
+        display: none !important;
+    }
+
+    /* Show print-only content */
+    .cf-print-only {
+        display: block !important;
+    }
+
+    /* Tables */
+    .cf-table-wrapper {
+        overflow: visible;
+    }
+
+    .cf-table {
+        min-width: unset;
+        width: 100%;
+        border: 1px solid #000;
+        font-size: 9pt;
+    }
+
+    .cf-table thead th {
+        background: #1a1a2e !important;
+        color: #fff !important;
+        font-size: 8pt;
+        padding: 4pt 6pt;
+        border: 1px solid #000;
+        border-radius: 0;
+    }
+
+    .cf-table tbody td {
+        padding: 4pt 6pt;
+        border: 1px solid #888;
+        font-size: 9pt;
+    }
+
+    .cf-table tbody tr:nth-child(even) td {
+        background: #f5f5f5 !important;
+    }
+
+    .cf-table tbody tr.cf-table__total-row td {
+        background: #e8e8e8 !important;
+        font-weight: bold;
+        border-top: 2pt solid #000;
+    }
+
+    .cf-table tbody tr.cf-table__group-row td {
+        background: #d8d8d8 !important;
+        font-weight: bold;
+    }
+
+    .cf-table tr.cf-table__section-row td {
+        background: #1a1a2e !important;
+        color: #fff !important;
+        font-size: 8.5pt;
+        padding: 3pt 6pt;
+    }
+
+    .cf-crit-range {
+        color: #555;
+        font-size: 8pt;
+    }
+
+    .cf-item-note {
+        color: #555;
+        font-size: 7.5pt;
+    }
+
+    /* Radio groups — hide on print, show static value */
+    .cf-radio-group {
+        display: none;
+    }
+
+    /* Score inputs — hide on print, show static value */
+    .cf-score-input {
+        display: none !important;
+    }
+
+    /* Static print values (toggled by JS before printing) */
+    .cf-print-val {
+        display: block;
+        text-align: center;
+        font-weight: 700;
+        font-size: 10pt;
+    }
+
+    /* Total badges */
+    .cf-total-display {
+        border: 1px solid #000;
+        background: #fff;
+        color: #000;
+    }
+
+    .cf-total-display--filled,
+    .cf-group-score-display {
+        background: #1a1a2e !important;
+        color: #fff !important;
+    }
+
+    /* Scale legend */
+    .cf-scale-legend {
+        margin-bottom: 8pt;
+    }
+
+    .cf-scale-item {
+        font-size: 9pt;
+    }
+
+    .cf-scale-badge {
+        width: 18px;
+        height: 18px;
+        font-size: 8pt;
+    }
+
+    /* Decision checkboxes */
+    .cf-decision-grid {
+        display: block;
+    }
+
+    .cf-decision-option {
+        border: none;
+        background: transparent;
+        padding: 2pt 0;
+        gap: 8pt;
+        cursor: default;
+    }
+
+    .cf-decision-option:hover {
+        border: none;
+        background: transparent;
+    }
+
+    .cf-tick-box {
+        width: 12pt !important;
+        height: 12pt !important;
+        border: 1.5pt solid #000 !important;
+        border-radius: 2pt !important;
+        background: transparent !important;
+        color: transparent !important;
+    }
+
+    .cf-decision-option input[type="radio"]:checked ~ .cf-tick-box {
+        background: #000 !important;
+        color: #fff !important;
+    }
+
+    .cf-decision-label {
+        font-size: 9.5pt;
+        color: #000 !important;
+        font-weight: normal !important;
+    }
+
+    .cf-decision-option input[type="radio"]:checked ~ .cf-decision-label {
+        font-weight: bold !important;
+    }
+
+    /* Rated-by signature block */
+    .cf-rated-by {
+        margin-top: 20pt;
+        padding-top: 8pt;
+    }
+
+    .cf-rated-by .cf-input {
+        border-bottom: 1px solid #000 !important;
+        font-size: 10pt;
+        max-width: 280pt;
+        background: transparent;
+    }
+
+    .cf-rated-by__label,
+    .cf-rated-by__sub {
+        font-size: 8pt;
+        color: #000;
+    }
+
+    /* Notes */
+    .cf-note {
+        font-size: 8pt;
+        font-style: italic;
+    }
+}
+
+
+/* ============================================================
+   19. STATIC PRINT VALUES  (hidden on screen, shown via JS)
+   ============================================================ */
+
+/* Default: hidden on screen */
+.cf-print-val {
+    display: none;
+}
