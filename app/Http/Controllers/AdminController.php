@@ -13,6 +13,7 @@ use Inertia\Inertia;
 use App\Models\User;
 use App\Models\Capstone;
 use App\Models\Proposal;
+use GuzzleHttp\Client;
 
 class AdminController extends Controller
 {
@@ -987,28 +988,20 @@ class AdminController extends Controller
             $capstone->is_live = $validated['is_live'];
 
             if ($request->hasFile('logo_image')) {
-                $uploadedLogo = $request->file('logo_image');
-                $logoPath = Storage::disk('public')->putFile('capstone-logos', $uploadedLogo);
+                // Upload to Vercel Blob
+                $client = new Client();
+                $file = $request->file('logo_image');
+                
+                $response = $client->post('https://blob.vercel-storage.com', [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . env('VERCEL_BLOB_TOKEN'),
+                        'Content-Type' => $file->getMimeType(),
+                    ],
+                    'body' => fopen($file->getRealPath(), 'r'),
+                ]);
 
-                if ($logoPath) {
-                    if ($capstone->logo && str_starts_with($capstone->logo, '/storage/')) {
-                        $previousPath = ltrim(substr($capstone->logo, 9), '/');
-                        if (Storage::disk('public')->exists($previousPath)) {
-                            Storage::disk('public')->delete($previousPath);
-                        }
-                    }
-
-                    $capstone->logo = '/storage/' . ltrim($logoPath, '/');
-                }
-            } elseif ($request->has('logo')) {
-                $logoValue = $validated['logo'] ?? null;
-                if ($logoValue === null && $capstone->logo && str_starts_with($capstone->logo, '/storage/')) {
-                    $previousPath = ltrim(substr($capstone->logo, 9), '/');
-                    if (Storage::disk('public')->exists($previousPath)) {
-                        Storage::disk('public')->delete($previousPath);
-                    }
-                }
-                $capstone->logo = $logoValue;
+                $blobData = json_decode($response->getBody(), true);
+                $capstone->logo = $blobData['url']; // Store the blob URL
             }
 
             $capstone->save();
