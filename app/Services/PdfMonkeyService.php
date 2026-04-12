@@ -41,12 +41,19 @@ class PdfMonkeyService
                 ],
             ], $options);
 
+            // Log the API key (first 10 chars only for security)
+            $keyPreview = substr($this->secretKey, 0, 10) . '...';
+            Log::info('[PDFMonkey] Using API key: ' . $keyPreview);
+            Log::info('[PDFMonkey] API endpoint: ' . $this->apiUrl);
+
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->secretKey,
                 'Content-Type' => 'application/json',
-            ])->post("{$this->apiUrl}/documents", [
+            ])->timeout(30)->post("{$this->apiUrl}/documents", [
                 'document' => $payload,
             ]);
+
+            Log::info('[PDFMonkey] API Response Status: ' . $response->status());
 
             if ($response->successful()) {
                 $data = $response->json();
@@ -58,11 +65,13 @@ class PdfMonkeyService
                 Log::error('[PDFMonkey] API error', [
                     'status' => $response->status(),
                     'body' => $response->body(),
+                    'headers' => $response->headers(),
                 ]);
                 return null;
             }
         } catch (\Exception $e) {
             Log::error('[PDFMonkey] Exception: ' . $e->getMessage());
+            Log::error('[PDFMonkey] Exception trace: ' . $e->getTraceAsString());
             return null;
         }
     }
@@ -75,33 +84,49 @@ class PdfMonkeyService
      */
     private function waitForPdfCompletion(string $documentId, int $maxAttempts = 30): ?string
     {
+        Log::info('[PDFMonkey] Polling for document completion, max attempts: ' . $maxAttempts);
         $attempt = 0;
 
         while ($attempt < $maxAttempts) {
             try {
                 $response = Http::withHeaders([
                     'Authorization' => 'Bearer ' . $this->secretKey,
-                ])->get("{$this->apiUrl}/documents/{$documentId}");
+                ])->timeout(30)->get("{$this->apiUrl}/documents/{$documentId}");
+
+                Log::info('[PDFMonkey] Poll attempt ' . ($attempt + 1) . ' - Status: ' . $response->status());
 
                 if ($response->successful()) {
                     $data = $response->json();
                     $status = $data['document']['status'] ?? null;
 
-                    Log::info('[PDFMonkey] Document status', ['status' => $status]);
+                    Log::info('[PDFMonkey] Document status: ' . $status, ['document_id' => $documentId]);
 
                     if ($status === 'rendered') {
                         $downloadUrl = $data['document']['download_url'] ?? null;
                         if ($downloadUrl) {
-                            $pdfResponse = Http::get($downloadUrl);
+                            Log::info('[PDFMonkey] Attempting to download PDF from: ' . $downloadUrl);
+                            $pdfResponse = Http::timeout(30)->get($downloadUrl);
                             if ($pdfResponse->successful()) {
                                 Log::info('[PDFMonkey] PDF downloaded successfully');
                                 return base64_encode($pdfResponse->body());
+                            } else {
+                                Log::error('[PDFMonkey] Failed to download PDF', [
+                                    'status' => $pdfResponse->status(),
+                                    'url' => $downloadUrl,
+                                ]);
                             }
+                        } else {
+                            Log::error('[PDFMonkey] No download_url in response', $data['document']);
                         }
                     } elseif ($status === 'error') {
                         Log::error('[PDFMonkey] Document rendering failed', $data['document']);
                         return null;
                     }
+                } else {
+                    Log::error('[PDFMonkey] Poll request failed', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                    ]);
                 }
 
                 // Wait before retrying
@@ -109,11 +134,12 @@ class PdfMonkeyService
                 $attempt++;
             } catch (\Exception $e) {
                 Log::error('[PDFMonkey] Polling error: ' . $e->getMessage());
+                Log::error('[PDFMonkey] Polling error trace: ' . $e->getTraceAsString());
                 return null;
             }
         }
 
-        Log::error('[PDFMonkey] Timeout waiting for PDF completion');
+        Log::error('[PDFMonkey] Timeout waiting for PDF completion after ' . $maxAttempts . ' attempts');
         return null;
     }
 
