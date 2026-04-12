@@ -994,7 +994,7 @@ class AdminController extends Controller
                 
                 $response = $client->post('https://blob.vercel-storage.com', [
                     'headers' => [
-                        'Authorization' => 'Bearer ' . env('VERCEL_BLOB_TOKEN'),
+                        'Authorization' => 'Bearer ' . env('BLOB_READ_WRITE_TOKEN'),
                         'Content-Type' => $file->getMimeType(),
                     ],
                     'body' => fopen($file->getRealPath(), 'r'),
