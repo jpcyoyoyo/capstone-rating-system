@@ -8,7 +8,7 @@ use App\Models\Capstone;
 use App\Models\Proposal;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Spatie\Browsershot\Browsershot;
+use App\Services\PdfMonkeyService;
 
 class NonAdminController extends Controller
 {
@@ -1549,22 +1549,24 @@ class NonAdminController extends Controller
             Log::info('[PDF] PDF path: ' . $pdfPath);
 
             try {
-                Log::info('[PDF] ⏳ Starting Browsershot rendering (using Chrome)...');
-                Log::info('[PDF] Node.js path: C:\Program Files\nodejs\node.exe');
-                Log::info('[PDF] Chrome path: ' . ($this->getChromePath() ?? 'auto-detected'));
+                Log::info('[PDF] ⏳ Starting PDFMonkey rendering...');
                 
-                // Use Browsershot to render HTML to PDF
-                // Browsershot uses Chrome for accurate rendering
-                $browsershot = Browsershot::html($html)
-                    ->setNodeBinary('C:\Program Files\nodejs\node.exe')  // Explicit Node.js path
-                    ->setChromePath($this->getChromePath())
-                    ->format('A4')
-                    ->margins(0, 16.51, 0, 16.51)
-                    ->noSandbox();  // Important for some server configurations
+                // Use PDFMonkey to render HTML to PDF
+                $pdfMonkey = new PdfMonkeyService();
+                $base64Pdf = $pdfMonkey->generatePdfFromHtml($html, [
+                    'filename' => $filename,
+                ]);
                 
-                $browsershot->save($pdfPath);
+                if (!$base64Pdf) {
+                    throw new \Exception('PDFMonkey failed to generate PDF');
+                }
                 
-                Log::info('[PDF] ✓ Browsershot rendering completed');
+                // Save the PDF to file
+                if (!$pdfMonkey->savePdfToFile($base64Pdf, $pdfPath)) {
+                    throw new \Exception('Failed to save PDF to file');
+                }
+                
+                Log::info('[PDF] ✓ PDFMonkey rendering completed');
 
                 // Verify PDF was created
                 if (!file_exists($pdfPath)) {
@@ -1595,54 +1597,6 @@ class NonAdminController extends Controller
         }
     }
 
-    /**
-     * Helper method to find Chrome/Chromium executable
-     * Searches common installation paths across Windows, macOS, and Linux
-     */
-    private function getChromePath()
-    {
-        Log::info('[PDF] Searching for Chrome/Chromium executable...');
-        
-        // Windows paths - most likely first
-        $windowsPaths = [
-            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files\\Chromium\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Chromium\\Application\\chrome.exe',
-            env('CHROME_PATH'),
-        ];
-
-        // macOS paths
-        $macPaths = [
-            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            '/Applications/Chromium.app/Contents/MacOS/Chromium',
-        ];
-
-        // Linux paths
-        $linuxPaths = [
-            '/usr/bin/google-chrome',
-            '/usr/bin/chromium',
-            '/usr/bin/chromium-browser',
-            '/snap/bin/chromium',
-        ];
-
-        $pathsToTry = array_merge($windowsPaths, $macPaths, $linuxPaths);
-
-        foreach ($pathsToTry as $path) {
-            if ($path && file_exists($path)) {
-                Log::info('[PDF] ✓ Found Chrome at: ' . $path);
-                return $path;
-            } else {
-                if ($path) {
-                    Log::debug('[PDF] Chrome not found at: ' . $path);
-                }
-            }
-        }
-
-        Log::warning('[PDF] Chrome not found in standard paths, using auto-detection');
-        // If not found, Browsershot will search in PATH
-        return null;
-    }
 
     /**
      * Initialize PDF generation progress tracking with all document names
