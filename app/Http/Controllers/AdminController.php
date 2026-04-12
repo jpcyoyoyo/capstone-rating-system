@@ -13,7 +13,6 @@ use Inertia\Inertia;
 use App\Models\User;
 use App\Models\Capstone;
 use App\Models\Proposal;
-use GuzzleHttp\Client;
 
 class AdminController extends Controller
 {
@@ -988,20 +987,22 @@ class AdminController extends Controller
             $capstone->is_live = $validated['is_live'];
 
             if ($request->hasFile('logo_image')) {
-                // Upload to Vercel Blob
-                $client = new Client();
-                $file = $request->file('logo_image');
-                
-                $response = $client->post('https://blob.vercel-storage.com', [
-                    'headers' => [
-                        'Authorization' => 'Bearer ' . env('BLOB_READ_WRITE_TOKEN'),
-                        'Content-Type' => $file->getMimeType(),
-                    ],
-                    'body' => fopen($file->getRealPath(), 'r'),
-                ]);
+                $uploadedLogo = $request->file('logo_image');
+                $logoPath = Storage::disk('public')->putFile('capstone-logos', $uploadedLogo);
 
-                $blobData = json_decode($response->getBody(), true);
-                $capstone->logo = $blobData['url']; // Store the blob URL
+                if ($logoPath) {
+                    if ($capstone->logo && str_starts_with($capstone->logo, '/storage/')) {
+                        $previousPath = ltrim(substr($capstone->logo, 9), '/');
+                        if (Storage::disk('public')->exists($previousPath)) {
+                            Storage::disk('public')->delete($previousPath);
+                        }
+                    }
+
+                    $capstone->logo = '/storage/' . ltrim($logoPath, '/');
+                }
+            } elseif ($request->has('logo')) {
+                $logoValue = $validated['logo'] ?? null;
+                $capstone->logo = is_string($logoValue) && trim($logoValue) !== '' ? trim($logoValue) : null;
             }
 
             $capstone->save();
