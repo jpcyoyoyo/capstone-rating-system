@@ -543,9 +543,7 @@ export default function Capstones({ capstones: initialCapstones }: CapstonesPage
             
             // If a new logo file was selected, upload it to socket-server first
             if (logoFile) {
-                const socketServerUrl = window.location.origin.includes('localhost') 
-                    ? 'http://localhost:6001'
-                    : `http://${window.location.hostname}:6001`;
+                const socketServerUrl = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:6001';
                 
                 try {
                     // Convert file to base64
