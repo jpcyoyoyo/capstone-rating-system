@@ -35,6 +35,6 @@ return [
         ],
     ],
 
-    'socket_server_url' => env('SOCKET_SERVER_URL', 'http://localhost:6001'),
+    'socket_server_url' => env('SOCKET_IO_SERVER_URL', 'http://localhost:6001'),
 
 ];
