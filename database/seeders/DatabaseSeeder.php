@@ -25,9 +25,5 @@ class DatabaseSeeder extends Seeder
                 'role' => 'Admin',
             ]
         );
-
-        $this->call([
-            CapstoneSeeder::class,
-        ]);
     }
 }

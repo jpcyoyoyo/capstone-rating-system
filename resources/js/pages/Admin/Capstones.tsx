@@ -10,6 +10,7 @@ interface CapstoneProps {
     no_of_proposals: number;
     is_live: boolean;
     created_at: string;
+    updated_at: string;
     logo?: string | null;
 }
 
@@ -75,7 +76,8 @@ interface CapstonesPageProps {
     capstones: CapstoneProps[];
 }
 
-export default function Capstones({ capstones }: CapstonesPageProps) {
+export default function Capstones({ capstones: initialCapstones }: CapstonesPageProps) {
+    const [capstones, setCapstones] = useState<CapstoneProps[]>(initialCapstones);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'LIVE'>('ALL');
@@ -127,6 +129,10 @@ export default function Capstones({ capstones }: CapstonesPageProps) {
     }, []);
 
     useEffect(() => {
+        setCapstones(initialCapstones);
+    }, [initialCapstones]);
+
+    useEffect(() => {
         if (capstoneDetail) {
             console.log('[DEBUG STATE] capstoneDetail state updated:', capstoneDetail);
             console.log('[DEBUG STATE] capstoneDetail.proposals:', capstoneDetail.proposals);
@@ -145,13 +151,23 @@ export default function Capstones({ capstones }: CapstonesPageProps) {
     };
 
     const filteredCapstones = useMemo(() => {
-        return capstones.filter((capstone) => {
+        const filtered = capstones.filter((capstone) => {
             const matchesSearch = searchQuery.trim() === '' ||
                 capstone.team_name.toLowerCase().includes(searchQuery.trim().toLowerCase());
             const matchesFilter = selectedFilter === 'ALL' ||
                 (selectedFilter === 'LIVE' && capstone.is_live);
 
             return matchesSearch && matchesFilter;
+        });
+
+        // Sort by is_live (1 first, then 0), then by updated_at (most recent first)
+        return filtered.sort((a, b) => {
+            // First sort by is_live: is_live=1 comes before is_live=0
+            if (a.is_live !== b.is_live) {
+                return a.is_live ? -1 : 1;
+            }
+            // Within same is_live status, sort by updated_at (most recent first)
+            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
         });
     }, [capstones, searchQuery, selectedFilter]);
 
@@ -523,29 +539,74 @@ export default function Capstones({ capstones }: CapstonesPageProps) {
 
         setIsSavingCapstone(true);
         try {
-            const headers: Record<string, string> = {
-                'X-CSRF-TOKEN': getCsrfToken(),
-            };
-
-            let body: BodyInit;
+            let logoUrl = capstoneDetail.logo; // Keep existing logo by default
+            
+            // If a new logo file was selected, upload it to socket-server first
             if (logoFile) {
-                const formData = new FormData();
-                formData.append('team_name', editingTeamName);
-                formData.append('is_live', editingIsLive ? '1' : '0');
-                formData.append('logo_image', logoFile);
-                body = formData;
-            } else {
-                headers['Content-Type'] = 'application/json';
-                body = JSON.stringify({
-                    team_name: editingTeamName,
-                    is_live: editingIsLive ? 1 : 0,
-                });
+                const socketServerUrl = window.location.origin.includes('localhost') 
+                    ? 'http://localhost:6001'
+                    : `http://${window.location.hostname}:6001`;
+                
+                try {
+                    // Convert file to base64
+                    const reader = new FileReader();
+                    const base64Promise = new Promise<string>((resolve, reject) => {
+                        reader.onload = () => {
+                            const result = reader.result as string;
+                            resolve(result);
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(logoFile);
+                    });
+
+                    const base64Data = await base64Promise;
+
+                    const uploadResponse = await fetch(`${socketServerUrl}/upload-logo`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            imageData: base64Data,
+                            filename: logoFile.name,
+                        }),
+                    });
+
+                    if (uploadResponse.ok) {
+                        const uploadResult = await uploadResponse.json();
+                        // Use the socket-server URL for the logo
+                        logoUrl = `${socketServerUrl}${uploadResult.url}`;
+                        console.log('[Logo Upload] ✓ Logo uploaded to socket-server:', logoUrl);
+                    } else {
+                        const errorData = await uploadResponse.json();
+                        setProcessingStatus('failure');
+                        setProcessingMessage(`Failed to upload logo: ${errorData.message || 'Unknown error'}`);
+                        setTimeout(() => setProcessingStatus('idle'), 2000);
+                        setIsSavingCapstone(false);
+                        return;
+                    }
+                } catch (uploadError) {
+                    console.error('[Logo Upload] Error uploading logo:', uploadError);
+                    setProcessingStatus('failure');
+                    setProcessingMessage(`Error uploading logo: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`);
+                    setTimeout(() => setProcessingStatus('idle'), 2000);
+                    setIsSavingCapstone(false);
+                    return;
+                }
             }
 
+            // Now update capstone details with the logo URL
             const response = await fetch(`/admin/capstones/${capstoneDetail.id}/update-details`, {
                 method: 'POST',
-                headers,
-                body,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': getCsrfToken(),
+                },
+                body: JSON.stringify({
+                    team_name: editingTeamName,
+                    is_live: editingIsLive ? 1 : 0,
+                    logo: logoUrl,
+                }),
             });
 
             if (response.ok) {
@@ -557,7 +618,16 @@ export default function Capstones({ capstones }: CapstonesPageProps) {
                         team_name: editingTeamName,
                         is_live: editingIsLive,
                         logo: updatedCapstone.capstone.logo ?? null,
+                        updated_at: updatedCapstone.capstone.updated_at,
                     });
+                }
+                // Refresh the capstones list to ensure proper sorting by updated_at
+                try {
+                    const listResponse = await fetch('/admin/capstones');
+                    const listData = await listResponse.json();
+                    setCapstones(listData.capstones);
+                } catch (err) {
+                    console.error('[Capstone] Error refreshing capstones list:', err);
                 }
                 setIsEditingCapstone(false);
                 setLogoFile(null);

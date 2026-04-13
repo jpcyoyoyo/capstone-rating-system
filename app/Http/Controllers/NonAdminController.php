@@ -8,7 +8,7 @@ use App\Models\Capstone;
 use App\Models\Proposal;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use App\Services\PdfMonkeyService;
+use App\Services\RemotePdfService;
 
 class NonAdminController extends Controller
 {
@@ -780,14 +780,16 @@ class NonAdminController extends Controller
     }
 
     /**
-     * Generate PDFs for all submitted forms and create a zip file
+     * Generate PDFs for all submitted forms via socket-server batch endpoint
+     * Socket-server handles PDF generation with proper file organization and ZIP creation
      */
     public function generatePdfZip(Request $request, $capstone_id)
     {
-        // Increase execution time for PDF generation (Browsershot can take time)
-        set_time_limit(600); // 10 minutes
+        // Increase execution time for download processing
+        set_time_limit(300); // 5 minutes
         
-        Log::info('[PDF Generation] Starting PDF generation for capstone: ' . $capstone_id);
+        Log::info('[PDF Generation] Starting batch PDF generation for capstone: ' . $capstone_id);
+        Log::info('[PDF Generation] Using socket-server endpoint: POST /generate-batch-zip');
         
         try {
             $capstone = Capstone::find($capstone_id);
@@ -800,233 +802,279 @@ class NonAdminController extends Controller
 
             $proposals = Proposal::where('capstone_id', $capstone_id)->get();
             Log::info('[PDF Generation] Found ' . $proposals->count() . ' proposals');
-            
-            $tempDir = storage_path('pdf_temp/' . uniqid());
-            Log::info('[PDF Generation] Creating temp directory: ' . $tempDir);
-            @mkdir($tempDir, 0755, true);
 
-            if (!is_dir($tempDir)) {
-                Log::error('[PDF Generation] Failed to create temp directory: ' . $tempDir);
-                return response()->json(['error' => 'Failed to create temporary directory'], 500);
-            }
-
-            $pdfCount = 0;
-            $errorCount = 0;
-            $htmlTemplateMap = [
-                'Proposal Defense Evaluation' => 'eval_docuement_render/defense_eval',
-                'Peer & Self Evaluation' => 'eval_docuement_render/team_self_eval',
-                'Oral Presentation Evaluation' => 'eval_docuement_render/team_oral_eval',
-            ];
-
-            // First pass: count total documents that will be generated
-            $totalDocuments = 0;
-            foreach ($proposals as $proposal) {
-                if ($proposal->defense_eval) {
-                    $defenseEval = is_string($proposal->defense_eval) ? json_decode($proposal->defense_eval, true) : $proposal->defense_eval;
-                    if (isset($defenseEval['forms'])) {
-                        $totalDocuments += count(array_filter($defenseEval['forms'], fn($f) => $f['is_submitted'] ?? false));
-                    }
-                }
-                if ($proposal->team_self_eval) {
-                    $selfEval = is_string($proposal->team_self_eval) ? json_decode($proposal->team_self_eval, true) : $proposal->team_self_eval;
-                    if (isset($selfEval['forms'])) {
-                        $totalDocuments += count(array_filter($selfEval['forms'], fn($f) => $f['is_submitted'] ?? false));
-                    }
-                }
-                if ($proposal->team_oral_eval) {
-                    $oralEval = is_string($proposal->team_oral_eval) ? json_decode($proposal->team_oral_eval, true) : $proposal->team_oral_eval;
-                    if (isset($oralEval['forms'])) {
-                        $totalDocuments += count(array_filter($oralEval['forms'], fn($f) => $f['is_submitted'] ?? false));
-                    }
-                }
-            }
-
-            Log::info('[PDF Generation] Total documents to generate: ' . $totalDocuments);
-            
-            // Clear any existing progress cache before starting
-            $cacheKey = "pdf_progress_{$capstone_id}";
-            cache()->forget($cacheKey);
-            Log::info('[PDF Generation] Cleared existing progress cache for capstone: ' . $capstone_id);
-            
-            $this->initializeProgressTracking($capstone_id, $totalDocuments, $proposals);
+            // Collect all submitted forms
+            $formsToGenerate = [];
 
             foreach ($proposals as $proposalIndex => $proposal) {
                 $proposalNumber = $proposalIndex + 1;
-                Log::info('[PDF Generation] Processing Proposal ' . $proposalNumber);
+                Log::info('[PDF Generation] Collecting forms from Proposal ' . $proposalNumber);
 
-                // Process Defense Evaluation
+                // Defense Evaluation
                 if ($proposal->defense_eval) {
-                    Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' has defense_eval data');
                     $defenseEval = is_string($proposal->defense_eval) ? json_decode($proposal->defense_eval, true) : $proposal->defense_eval;
                     if (isset($defenseEval['forms']) && is_array($defenseEval['forms'])) {
-                        Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' defense_eval has ' . count($defenseEval['forms']) . ' forms');
                         foreach ($defenseEval['forms'] as $formIndex => $form) {
                             if ($form['is_submitted'] ?? false) {
-                                $fullName = $form['full_name'] ?? 'Unknown';
-                                Log::info('[PDF Generation] Generating PDF for Proposal ' . $proposalNumber . ' defense form ' . $formIndex);
-                                $docName = "Proposal Defense - Proposal {$proposalNumber} ({$fullName})";
-                                Log::info('[PDF Generation] About to call updateProgressTracking for: ' . $docName);
-                                $this->updateProgressTracking($capstone_id, $docName, 'generating');
-                                try {
-                                    $this->generatePdfFromForm(
-                                        $proposal,
-                                        $form,
-                                        'defense_eval',
-                                        $tempDir,
-                                        $proposalNumber,
-                                        $formIndex,
-                                        $pdfCount,
-                                        'Proposal_Defense'
-                                    );
-                                    $this->updateProgressTracking($capstone_id, $docName, 'complete');
-                                    
-                                    // Add delay between documents to allow EventSource to poll and see updates
-                                    usleep(1000000); // 1 second delay between documents for real-time visibility
-                                    $pdfCount++;
-                                } catch (\Exception $e) {
-                                    $this->updateProgressTracking($capstone_id, $docName, 'error');
-                                    $errorCount++;
-                                    Log::error('[PDF Generation] Error generating defense PDF: ' . $e->getMessage());
-                                }
+                                Log::info('[PDF Generation] Queuing Defense form for Proposal ' . $proposalNumber);
+                                
+                                // Generate HTML from template
+                                $html = $this->renderEvaluationTemplate('defense_eval', $form, $proposal);
+                                $proposalFolders = substr($proposalNumber . '_' . $proposal->title, 0, 30);
+                                $formsToGenerate[] = [
+                                    'html' => $html,
+                                    'formType' => 'Proposal Defense Evaluation',
+                                    'proposalNumber' => str_pad($proposalNumber, 3, '0', STR_PAD_LEFT),
+                                    'proposalFolder' => $proposalFolders,
+                                    'evaluatorName' => $form['full_name'] ?? 'Unknown',
+                                    'formIndex' => $formIndex + 1,
+                                ];
                             }
                         }
                     }
-                } else {
-                    Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' has no defense_eval data');
                 }
 
-                // Process Peer & Self Evaluation
+                // Peer & Self Evaluation
                 if ($proposal->team_self_eval) {
-                    Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' has team_self_eval data');
                     $selfEval = is_string($proposal->team_self_eval) ? json_decode($proposal->team_self_eval, true) : $proposal->team_self_eval;
                     if (isset($selfEval['forms']) && is_array($selfEval['forms'])) {
-                        Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' team_self_eval has ' . count($selfEval['forms']) . ' forms');
                         foreach ($selfEval['forms'] as $formIndex => $form) {
                             if ($form['is_submitted'] ?? false) {
-                                $fullName = $form['full_name'] ?? 'Unknown';
-                                Log::info('[PDF Generation] Generating PDF for Proposal ' . $proposalNumber . ' self-eval form ' . $formIndex);
-                                $docName = "Peer & Self Evaluation - Proposal {$proposalNumber} ({$fullName})";
-                                Log::info('[PDF Generation] About to call updateProgressTracking for: ' . $docName);
-                                $this->updateProgressTracking($capstone_id, $docName, 'generating');
-                                try {
-                                    $this->generatePdfFromForm(
-                                        $proposal,
-                                        $form,
-                                        'team_self_eval',
-                                        $tempDir,
-                                        $proposalNumber,
-                                        $formIndex,
-                                        $pdfCount,
-                                        'Peer_and_Self_Evaluation'
-                                    );
-                                    $this->updateProgressTracking($capstone_id, $docName, 'complete');
-                                    
-                                    // Add delay between documents to allow EventSource to poll and see updates
-                                    usleep(1000000); // 1 second delay between documents for real-time visibility
-                                    $pdfCount++;
-                                } catch (\Exception $e) {
-                                    $this->updateProgressTracking($capstone_id, $docName, 'error');
-                                    $errorCount++;
-                                    Log::error('[PDF Generation] Error generating self-eval PDF: ' . $e->getMessage());
-                                }
+                                Log::info('[PDF Generation] Queuing Self Evaluation form for Proposal ' . $proposalNumber);
+                                
+                                // Generate HTML from template
+                                $html = $this->renderEvaluationTemplate('team_self_eval', $form, $proposal);
+                                $proposalFolders = substr($proposalNumber . '_' . $proposal->title, 0, 30);
+                                $formsToGenerate[] = [
+                                    'html' => $html,
+                                    'formType' => 'Peer & Self Evaluation',
+                                    'proposalNumber' => str_pad($proposalNumber, 3, '0', STR_PAD_LEFT),
+                                    'proposalFolder' => $proposalFolders,
+                                    'evaluatorName' => $form['full_name'] ?? 'Unknown',
+                                    'formIndex' => $formIndex + 1,
+                                ];
                             }
                         }
                     }
-                } else {
-                    Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' has no team_self_eval data');
                 }
 
-                // Process Oral Presentation Evaluation
+                // Oral Presentation Evaluation
                 if ($proposal->team_oral_eval) {
-                    Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' has team_oral_eval data');
                     $oralEval = is_string($proposal->team_oral_eval) ? json_decode($proposal->team_oral_eval, true) : $proposal->team_oral_eval;
                     if (isset($oralEval['forms']) && is_array($oralEval['forms'])) {
-                        Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' team_oral_eval has ' . count($oralEval['forms']) . ' forms');
                         foreach ($oralEval['forms'] as $formIndex => $form) {
                             if ($form['is_submitted'] ?? false) {
-                                $fullName = $form['full_name'] ?? 'Unknown';
-                                Log::info('[PDF Generation] Generating PDF for Proposal ' . $proposalNumber . ' oral form ' . $formIndex);
-                                $docName = "Oral Presentation - Proposal {$proposalNumber} ({$fullName})";
-                                Log::info('[PDF Generation] About to call updateProgressTracking for: ' . $docName);
-                                $this->updateProgressTracking($capstone_id, $docName, 'generating');
-                                try {
-                                    $this->generatePdfFromForm(
-                                        $proposal,
-                                        $form,
-                                        'team_oral_eval',
-                                        $tempDir,
-                                        $proposalNumber,
-                                        $formIndex,
-                                        $pdfCount,
-                                        'Oral_Presentation_Evaluation'
-                                    );
-                                    $this->updateProgressTracking($capstone_id, $docName, 'complete');
-                                    
-                                    // Add delay between documents to allow EventSource to poll and see updates
-                                    usleep(1000000); // 1 second delay between documents for real-time visibility
-                                    $pdfCount++;
-                                } catch (\Exception $e) {
-                                    $this->updateProgressTracking($capstone_id, $docName, 'error');
-                                    $errorCount++;
-                                    Log::error('[PDF Generation] Error generating oral PDF: ' . $e->getMessage());
-                                }
+                                Log::info('[PDF Generation] Queuing Oral Presentation form for Proposal ' . $proposalNumber);
+                                
+                                // Generate HTML from template
+                                $html = $this->renderEvaluationTemplate('team_oral_eval', $form, $proposal);
+                                $proposalFolders = substr($proposalNumber . '_' . $proposal->title, 0, 30);
+                                $formsToGenerate[] = [
+                                    'html' => $html,
+                                    'formType' => 'Oral Presentation Evaluation',
+                                    'proposalNumber' => str_pad($proposalNumber, 3, '0', STR_PAD_LEFT),
+                                    'proposalFolder' => $proposalFolders,
+                                    'evaluatorName' => $form['full_name'] ?? 'Unknown',
+                                    'formIndex' => $formIndex + 1,
+                                ];
                             }
                         }
                     }
-                } else {
-                    Log::info('[PDF Generation] Proposal ' . $proposalNumber . ' has no team_oral_eval data');
                 }
             }
 
-            Log::info('[PDF Generation] Generated ' . $pdfCount . ' PDFs with ' . $errorCount . ' errors');
-
-            if ($pdfCount === 0 && $errorCount === 0) {
-                Log::warning('[PDF Generation] No submitted forms found');
-                return response()->json(['error' => 'No submitted forms found for this capstone'], 404);
+            if (empty($formsToGenerate)) {
+                Log::warning('[PDF Generation] No submitted forms found to generate');
+                return response()->json(['error' => 'No submitted forms found'], 400);
             }
 
-            // Create zip file
-            $zipPath = storage_path('pdf_temp/evaluations.zip');
-            Log::info('[PDF Generation] Creating zip file at: ' . $zipPath);
-            
-            $zip = new \ZipArchive();
-            if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== TRUE) {
-                Log::error('[PDF Generation] Failed to open zip file: ' . $zipPath);
-                return response()->json(['error' => 'Failed to create zip file'], 500);
+            Log::info('[PDF Generation] Collected ' . count($formsToGenerate) . ' forms to generate');
+            Log::info('[PDF Generation] Sending batch request to socket-server...');
+
+            // Send batch request to socket-server
+            $socketServerUrl = config('services.socket_server_url') ?? 'http://localhost:6001';
+            $response = Http::timeout(600)->post($socketServerUrl . '/generate-batch-zip', [
+                'capstoneId' => $capstone->id,
+                'teamName' => $capstone->team_name,
+                'forms' => $formsToGenerate,
+            ]);
+
+            if (!$response->successful()) {
+                Log::error('[PDF Generation] Socket-server error: ' . $response->status() . ' - ' . $response->body());
+                return response()->json(['error' => 'Failed to generate PDFs: ' . $response->status()], 500);
             }
 
-            // Recursively add all PDF files with their folder structure
-            $fileCount = $this->addFilesToZip($zip, $tempDir, $tempDir);
-            Log::info('[PDF Generation] Found and added ' . $fileCount . ' PDF files to zip');
-            
-            $zip->close();
-            Log::info('[PDF Generation] Zip file created successfully');
+            $batchResult = $response->json();
+            Log::info('[PDF Generation] ✓ Batch generation successful: ' . json_encode($batchResult));
 
-            // Check if zip file exists and has content
-            if (!file_exists($zipPath) || filesize($zipPath) === 0) {
-                Log::error('[PDF Generation] Zip file is empty or missing: ' . $zipPath);
-                return response()->json(['error' => 'Failed to create valid zip file'], 500);
+            // Download the ZIP file from socket-server
+            if (isset($batchResult['downloadUrl'])) {
+                $zipResponse = Http::timeout(60)->get($socketServerUrl . $batchResult['downloadUrl']);
+                
+                if (!$zipResponse->successful()) {
+                    Log::error('[PDF Generation] Failed to download ZIP from socket-server');
+                    return response()->json(['error' => 'Failed to download ZIP file'], 500);
+                }
+
+                // Return ZIP file as download
+                $filename = $batchResult['filename'] ?? 'Evaluations.zip';
+                return response($zipResponse->body(), 200, [
+                    'Content-Type' => 'application/zip',
+                    'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                ]);
             }
 
-            Log::info('[PDF Generation] Zip file size: ' . filesize($zipPath) . ' bytes');
+            return response()->json($batchResult);
 
-            // Mark progress as complete
-            $this->completeProgressTracking($capstone_id);
-
-            // Download zip and cleanup
-            $response = response()->download($zipPath)->deleteFileAfterSend(true);
-
-            // Cleanup temp directory recursively
-            $this->deleteDirectory($tempDir);
-            
-            Log::info('[PDF Generation] Cleaned up temp directory');
-            Log::info('[PDF Generation] PDF generation completed successfully');
-
-            return $response;
         } catch (\Exception $e) {
-            Log::error('[PDF Generation] Exception: ' . $e->getMessage() . ' | Stack: ' . $e->getTraceAsString());
-            return response()->json(['error' => 'Error generating PDFs: ' . $e->getMessage()], 500);
+            Log::error('[PDF Generation] Error: ' . $e->getMessage());
+            return response()->json(['error' => 'PDF generation failed: ' . $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Render evaluation template with form data
+     * Returns HTML string ready for PDF conversion
+     */
+    private function renderEvaluationTemplate($evalType, $form, $proposal)
+    {
+        $templatePath = resource_path("views/eval_docuement_render/{$evalType}.htm");
+        
+        if (!file_exists($templatePath)) {
+            throw new \Exception("Template not found: {$evalType}");
+        }
+
+        $html = file_get_contents($templatePath);
+        $originalHtmlSize = strlen($html);
+        Log::debug('[Template] Loaded template: ' . $evalType . ', size: ' . $originalHtmlSize . ' bytes');
+        
+        // Build replacements based on evaluation type
+        $replacements = $this->buildFormDataReplacements($form, $evalType, $proposal);
+        
+        $hasMultiPage = isset($replacements['__PAGES__']);
+        Log::debug('[Template] Multi-page: ' . ($hasMultiPage ? 'YES' : 'NO') . ', replacements count: ' . count($replacements));
+
+        // Handle multi-page replacements
+        if ($hasMultiPage) {
+            $pageReplacements = $replacements['__PAGES__'];
+            unset($replacements['__PAGES__']);
+            
+            $pageCount = count($pageReplacements);
+            Log::debug('[Template] Page count: ' . $pageCount);
+
+            // Extract body to find where content section is
+            $bodyStart = strpos($html, '<body');
+            $bodyEnd = strpos($html, '>', $bodyStart);
+            $bodyClosePos = strrpos($html, '</body>');
+            
+            Log::debug('[Template] Body positions - start: ' . ($bodyStart !== false ? $bodyStart : 'NOT_FOUND') . 
+                       ', end: ' . ($bodyEnd !== false ? $bodyEnd : 'NOT_FOUND') . 
+                       ', close: ' . ($bodyClosePos !== false ? $bodyClosePos : 'NOT_FOUND'));
+            
+            if ($bodyStart !== false && $bodyEnd !== false && $bodyClosePos !== false) {
+                // Extract header (before body), body opening, body content, and footer (after body)
+                $header = substr($html, 0, $bodyEnd + 1);
+                $footer = substr($html, $bodyClosePos);
+                $bodyContent = substr($html, $bodyEnd + 1, $bodyClosePos - $bodyEnd - 1);
+                
+                Log::debug('[Template] Structure - header size: ' . strlen($header) . 
+                           ', body content size: ' . strlen($bodyContent) . 
+                           ', footer size: ' . strlen($footer));
+                
+                // Apply base replacements to body content ONCE (not per-page)
+                foreach ($replacements as $placeholder => $value) {
+                    $bodyContent = str_replace($placeholder, $value, $bodyContent);
+                }
+                
+                Log::debug('[Template] After base replacements, body size: ' . strlen($bodyContent) . ' bytes');
+                
+                // Split body by page breaks or MS Word page marks if they exist
+                // MS Word uses <w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p> or <div style='page-break-before:always'>
+                $pageBreakPatterns = [
+                    '/<w:p[^>]*><w:pPr[^>]*><w:pageBreakBefore[^>]*\/><\/w:pPr><\/w:p>/',
+                    '/<div[^>]*style=["\']page-break-before[^"\']*["\'][^>]*>.*?<\/div>/i',
+                ];
+                
+                // Try to split by page breaks
+                $pages = [$bodyContent];
+                foreach ($pageBreakPatterns as $pattern) {
+                    if (preg_match_all($pattern, $bodyContent)) {
+                        $pages = preg_split($pattern, $bodyContent);
+                        Log::debug('[Template] Split by pattern into ' . count($pages) . ' pages');
+                        break;
+                    }
+                }
+                
+                // If we couldn't split by page breaks but have multiple replacement pages,
+                // OR if we have a multi-page template with only 1 page (e.g., 4 members)
+                // we need to apply page-specific replacements
+                if (count($pages) === 1 && $pageCount >= 1) {
+                    Log::debug('[Template] Applying page-specific replacements (pages: ' . count($pages) . ', pageCount: ' . $pageCount . ')');
+                    
+                    // For each page, apply ONLY the page-specific replacements
+                    $finalPages = [];
+                    foreach ($pageReplacements as $pageNum => $pageReps) {
+                        $pageHtml = $bodyContent;
+                        
+                        // Apply ONLY page-specific replacements (not base ones again)
+                        foreach ($pageReps as $placeholder => $value) {
+                            $pageHtml = str_replace($placeholder, $value, $pageHtml);
+                        }
+                        
+                        $finalPages[] = $pageHtml;
+                        Log::debug('[Template] Page ' . $pageNum . ' size: ' . strlen($pageHtml) . ' bytes');
+                    }
+                    
+                    // Join pages directly without page break wrappers
+                    $bodyContent = implode('', $finalPages);
+                } else if (count($pages) > 1) {
+                    // We successfully split by page breaks
+                    $finalPages = [];
+                    foreach ($pages as $pageIdx => $page) {
+                        if (empty(trim($page))) continue;
+                        
+                        // Apply page-specific replacements
+                        if (isset($pageReplacements[$pageIdx])) {
+                            foreach ($pageReplacements[$pageIdx] as $placeholder => $value) {
+                                $page = str_replace($placeholder, $value, $page);
+                            }
+                        }
+                        
+                        $finalPages[] = $page;
+                        Log::debug('[Template] Split page ' . $pageIdx . ' size: ' . strlen($page) . ' bytes');
+                    }
+                    
+                    // Join pages directly without page break wrappers
+                    $bodyContent = implode('', $finalPages);
+                }
+                
+                // Reconstruct document
+                $html = $header . $bodyContent . $footer;
+                Log::debug('[Template] Final HTML size: ' . strlen($html) . ' bytes');
+            } else {
+                // Fallback: apply all replacements to raw HTML
+                Log::warning('[Template] Body extraction failed, using fallback');
+                foreach ($replacements as $placeholder => $value) {
+                    $html = str_replace($placeholder, $value, $html);
+                }
+                foreach ($pageReplacements as $pageNum => $pageReps) {
+                    foreach ($pageReps as $placeholder => $value) {
+                        $html = str_replace($placeholder, $value, $html);
+                    }
+                }
+            }
+        } else {
+            // Single page - apply all replacements
+            foreach ($replacements as $placeholder => $value) {
+                $html = str_replace($placeholder, $value, $html);
+            }
+        }
+
+        // No CSS injection - let browser handle page breaks naturally
+        
+        Log::debug('[Template] Template processing complete: ' . $evalType . ', final size: ' . strlen($html) . ' bytes');
+        
+        return $html;
     }
 
     /**
@@ -1035,10 +1083,17 @@ class NonAdminController extends Controller
      */
     private function buildFormDataReplacements($form, $evalType, $proposal)
     {
+        Log::debug('[FormData] ========== START buildFormDataReplacements ==========');
+        Log::debug('[FormData] Eval Type: ' . $evalType);
+        Log::debug('[FormData] Form Keys: ' . implode(', ', array_keys($form)));
+        Log::debug('[FormData] Proposal Title: ' . ($proposal->title ?? 'N/A'));
+        
         $replacements = [];
         
         // Convert time to 00:00 am/pm format if needed
         $timeValue = $form['time'] ?? '';
+        Log::debug('[FormData] Raw time value: "' . $timeValue . '"');
+        
         if (!empty($timeValue) && strpos($timeValue, ':') !== false) {
             // Parse and convert to 12-hour format with am/pm
             $timeParts = explode(':', $timeValue);
@@ -1049,22 +1104,39 @@ class NonAdminController extends Controller
                 $hour12 = $hour % 12;
                 if ($hour12 === 0) $hour12 = 12;
                 $timeValue = str_pad($hour12, 2, '0', STR_PAD_LEFT) . ':' . $minute . ' ' . $period;
+                Log::debug('[FormData] Converted time: "' . $timeValue . '"');
             }
         }
         
         // Basic form information: underline with 2 spaces before/after value, then 2 more spaces without underline
-        $replacements['[EVALUATOR_NAME]'] = '<u>  ' . ($form['full_name'] ?? 'N/A') . '  </u>  ';
-        $replacements['[REVIEWER_NAME]'] = '<u>  ' . ($form['full_name'] ?? 'N/A') . '  </u>  ';
+        $fullName = $form['full_name'] ?? 'N/A';
+        $date = $form['date'] ?? '';
+        $designation = $form['designation'] ?? '';
+        $projectTitle = $proposal->title ?? '';
+        
+        Log::debug('[FormData] Basic Info - Name: "' . $fullName . '" | Date: "' . $date . '" | Designation: "' . $designation . '"');
+        
+        $replacements['[EVALUATOR_NAME]'] = '<u>  ' . $fullName . '  </u>  ';
+        $replacements['[REVIEWER_NAME]'] = '<u>  ' . $fullName . '  </u>  ';
         $replacements['[EVAL_TIME]'] = '<u>  ' . $timeValue . '  </u>  ';
-        $replacements['[EVAL_DATE]'] = '<u>  ' . ($form['date'] ?? '') . '  </u>  ';
-        $replacements['[DESIGNATION]'] = $form['form_data']['designation'] ?? '';
-        $replacements['[PROJECT_TITLE]'] = '<u>  ' . ($proposal->title ?? '') . '  </u>  ';
+        $replacements['[EVAL_DATE]'] = '<u>  ' . $date . '  </u>  ';
+        $replacements['[DESIGNATION]'] = $designation;
+        $replacements['[PROJECT_TITLE]'] = '<u>  ' . $projectTitle . '  </u>  ';
+        
+        Log::debug('[FormData] Basic replacements set: 6 placeholders');
 
         // Handle different evaluation types
         if ($evalType === 'team_oral_eval') {
+            Log::debug('[FormData] Processing team_oral_eval');
+            
             // Oral evaluation with team members
             $teamMembers = $form['form_data']['teamMembers'] ?? [];
             $scores = $form['form_data']['scores'] ?? [];
+            
+            Log::debug('[FormData] Team Members Count: ' . count($teamMembers));
+            Log::debug('[FormData] Team Members: ' . json_encode(array_map(fn($m) => $m['full_name'] ?? 'Unknown', $teamMembers)));
+            Log::debug('[FormData] Scores Count: ' . count($scores));
+            Log::debug('[FormData] Score Keys: ' . implode(', ', array_keys($scores)));
             
             // Criteria: 7 items (0-6)
             // 7 criteria with different score ranges:
@@ -1094,21 +1166,26 @@ class NonAdminController extends Controller
                 $startMemberIdx = $pageNum * 4;
                 $endMemberIdx = min($startMemberIdx + 4, count($teamMembers));
                 
+                Log::debug('[FormData] Page ' . ($pageNum + 1) . ': Members ' . $startMemberIdx . ' to ' . ($endMemberIdx - 1));
+                
                 // Only create page if there are members for it
                 if ($startMemberIdx >= count($teamMembers)) break;
                 
                 $pageReplacementSet = $replacements; // Start with base replacements
                 $pageMemberTotals = [];
-                
+
                 // Set team member names and roles for this page
                 for ($i = $startMemberIdx; $i < $endMemberIdx; $i++) {
                     $memberIndex = $i + 1;
                     $columnIdx = $i - $startMemberIdx;
                     $member = $teamMembers[$i];
-                    $pageReplacementSet['[TEAM_MEMBER_NAME_' . ($columnIdx + 1) . ']'] = $member['full_name'] ?? '';
-                    $pageReplacementSet['[TEAM_MEMBER_ROLE_' . ($columnIdx + 1) . ']'] = $member['designation'] ?? '';
+                    $memberName = $member['full_name'] ?? '';
+                    $memberDesignation = $member['designation'] ?? '';
+                    $pageReplacementSet['[TEAM_MEMBER_NAME_' . ($columnIdx + 1) . ']'] = $memberName;
+                    $pageReplacementSet['[TEAM_MEMBER_ROLE_' . ($columnIdx + 1) . ']'] = $memberDesignation;
                     // Add member number placeholder for correct numbering across pages
                     $pageReplacementSet['[MEMBER_NUM_' . ($columnIdx + 1) . ']'] = (string)$memberIndex;
+                    Log::debug('[FormData] Member ' . $memberIndex . ' Col ' . ($columnIdx + 1) . ': ' . $memberName);
                 }
                 
                 // Set individual scores for this page
@@ -1121,6 +1198,8 @@ class NonAdminController extends Controller
                     }
                 }
                 
+                Log::debug('[FormData] Scores set for page ' . ($pageNum + 1));
+                
                 // Calculate individual totals for this page
                 for ($i = $startMemberIdx; $i < $endMemberIdx; $i++) {
                     $total = 0;
@@ -1132,13 +1211,30 @@ class NonAdminController extends Controller
                     $pageMemberTotals[] = $total;
                     $pageReplacementSet['[TOTAL_' . $columnIdx . ']'] = (string)$total;
                     $allMemberTotals[] = $total;
+                    Log::debug('[FormData] Total for member ' . ($i + 1) . ': ' . $total);
                 }
+                
+                // Clear unused columns on this page (for 5-7 members where page 2 is partial)
+                $numMembersOnPage = $endMemberIdx - $startMemberIdx;
+                for ($col = $numMembersOnPage; $col < 4; $col++) {
+                    $pageReplacementSet['[TEAM_MEMBER_NAME_' . ($col + 1) . ']'] = '';
+                    $pageReplacementSet['[TEAM_MEMBER_ROLE_' . ($col + 1) . ']'] = '';
+                    $pageReplacementSet['[MEMBER_NUM_' . ($col + 1) . ']'] = '';
+                    for ($criteriaIdx = 0; $criteriaIdx < count($criteria); $criteriaIdx++) {
+                        $pageReplacementSet['[SCORE_' . $criteriaIdx . '_' . $col . ']'] = '';
+                    }
+                    $pageReplacementSet['[TOTAL_' . $col . ']'] = '';
+                }
+                
+                Log::debug('[FormData] Cleared ' . (4 - $numMembersOnPage) . ' unused columns on page ' . ($pageNum + 1));
                 
                 $pageReplacements[] = $pageReplacementSet;
             }
             
             // Calculate overall group average (average of all individual member totals)
             $groupAverage = count($allMemberTotals) > 0 ? round(array_sum($allMemberTotals) / count($allMemberTotals), 2) : 0;
+            Log::debug('[FormData] Group Average: ' . $groupAverage);
+
             
             // Add group average to all page replacement sets
             foreach ($pageReplacements as &$pageReplacementSet) {
@@ -1150,18 +1246,27 @@ class NonAdminController extends Controller
             $replacements['__PAGES__'] = $pageReplacements;
             
         } elseif ($evalType === 'team_self_eval') {
+            Log::debug('[FormData] Processing team_self_eval');
+            
             // Self evaluation with peer ratings
             $memberRatings = $form['form_data']['memberRatings'] ?? [];
             $ratings = $form['form_data']['ratings'] ?? [];
             
+            Log::debug('[FormData] Member Ratings Count: ' . count($memberRatings));
+            Log::debug('[FormData] Member Ratings: ' . json_encode(array_map(fn($m) => $m['full_name'] ?? 'Unknown', $memberRatings)));
+            Log::debug('[FormData] Ratings Data Keys: ' . implode(', ', array_keys($ratings)));
+            
             // Create ordered member indices with reviewer first
             $reviewerId = $form['member_id'];
+            Log::debug('[FormData] Reviewer ID: ' . $reviewerId);
+            
             $orderedIndices = [];
             $reviewerIndex = null;
             foreach ($memberRatings as $index => $member) {
                 if ($member['member_id'] == $reviewerId) {
                     $reviewerIndex = $index;
                     $orderedIndices[] = $index;
+                    Log::debug('[FormData] Reviewer found at index: ' . $index);
                     break;
                 }
             }
@@ -1281,24 +1386,21 @@ class NonAdminController extends Controller
             }
         }
 
+        // Final debug output
+        $replacementKeys = array_keys($replacements);
+        $hasPages = isset($replacements['__PAGES__']);
+        $pageCount = $hasPages ? count($replacements['__PAGES__']) : 0;
+        $totalReplacements = count($replacements);
+        
+        Log::debug('[FormData] Final Replacements - Total Keys: ' . $totalReplacements . ' | Has Pages: ' . ($hasPages ? 'YES (' . $pageCount . ' pages)' : 'NO'));
+        Log::debug('[FormData] Replacement Keys: ' . implode(', ', array_filter($replacementKeys, fn($k) => $k !== '__PAGES__')));
+        if ($hasPages && $pageCount > 0) {
+            Log::debug('[FormData] Page 1 has ' . count($replacements['__PAGES__'][0]) . ' replacements');
+        }
+        Log::debug('[FormData] ========== END buildFormDataReplacements ==========');
+
         return $replacements;
     }
-
-    /**
-     * Process CSS styling for PDF rendering
-     * Preserves inline styles and embeds external CSS for PDF compatibility
-     */
-
-
-    /**
-     * Process images for PDF rendering
-     * Validates image URLs, checks if they work, and converts relative paths to absolute
-     * Adds comprehensive debugging for image processing
-     */
-    /**
-     * Helper method to generate PDF from form data using Browsershot
-     * Browsershot uses Chrome for accurate HTML/CSS/image rendering
-     */
     private function generatePdfFromForm($proposal, $form, $evalType, $tempDir, $proposalNumber, $formIndex, $pdfCount, $evalTypeFolder = '')
     {
         try {
@@ -1442,13 +1544,10 @@ class NonAdminController extends Controller
     {
         try {
             // Remove padding paragraphs based on comment length
-            // For every 90 characters in the comment, remove one padding paragraph
-            // Only remove from the section between "END OF COMMENT TABLE" and "SECOND PAGE FOOTER SECTION"
             $commentLength = strlen($form['form_data']['comments'] ?? '');
             $paragraphsToRemove = (int)floor($commentLength / 90);
             
             if ($paragraphsToRemove > 0) {
-                // Extract the section between the two markers
                 $startMarker = '<!-- END OF COMMENT TABLE -->';
                 $endMarker = '<!-- SECOND PAGE FOOTER SECTION -->';
                 
@@ -1456,59 +1555,50 @@ class NonAdminController extends Controller
                 $endPos = strpos($html, $endMarker);
                 
                 if ($startPos !== false && $endPos !== false) {
-                    // Get the section between the markers
                     $sectionStart = $startPos + strlen($startMarker);
                     $section = substr($html, $sectionStart, $endPos - $sectionStart);
                     
-                    // Pattern to match padding paragraph elements (empty paragraph with just &nbsp;)
                     $paddingPattern = '/<p[^>]*align=center[^>]*>\s*<b[^>]*>\s*<span[^>]*><o:p>&nbsp;<\/o:p><\/span>\s*<\/b>\s*<\/p>/is';
                     
-                    // Remove paragraphs from this section only
                     $modifiedSection = $section;
                     for ($i = 0; $i < $paragraphsToRemove; $i++) {
                         $modifiedSection = preg_replace($paddingPattern, '', $modifiedSection, 1, $count);
-                        if ($count === 0) break; // Stop if no more matches found
+                        if ($count === 0) break;
                     }
                     
-                    // Replace the section in the HTML
                     $html = substr_replace($html, $modifiedSection, $sectionStart, $endPos - $sectionStart);
                     
                     Log::info('[PDF] Removed ' . $paragraphsToRemove . ' padding paragraphs from footer section (comment length: ' . $commentLength . ' chars)');
-                } else {
-                    Log::warning('[PDF] Could not find comment table footer markers - skipping padding removal');
                 }
             }
 
-            // Process CSS - Browsershot will handle this automatically, but we can add base path
+            // Process CSS - Add base path for relative URLs
             try {
-                Log::info('[PDF-CSS] Processing CSS for Browsershot rendering');
+                Log::info('[PDF-CSS] Processing CSS for Browserless rendering');
                 
-                // Add base URL for relative paths
                 if (strpos($html, '<head>') !== false) {
-                    $baseTag = '<base href="' . public_path() . '">' . "\n";
+                    $baseTag = '<base href="' . config('app.url') . '">' . "\n";
                     $html = str_replace('<head>', '<head>' . "\n" . $baseTag, $html);
                     Log::info('[PDF-CSS] ✓ Added base tag for relative URL resolution');
                 }
                 
-                // Log CSS link tags found
                 if (preg_match_all('/<link[^>]*rel=["\']stylesheet["\'][^>]*href=["\']([^"\']+)["\'][^>]*>/i', $html, $matches)) {
-                    Log::info('[PDF-CSS] Found ' . count($matches[1]) . ' CSS link tags - Browsershot will render them');
+                    Log::info('[PDF-CSS] Found ' . count($matches[1]) . ' CSS link tags - Browserless will process them');
                 }
                 
-                // Log inline style tags found
                 if (preg_match_all('/<style[^>]*>(.+?)<\/style>/is', $html, $matches)) {
-                    Log::info('[PDF-CSS] ✓ Found ' . count($matches[0]) . ' inline style blocks - will be rendered');
+                    Log::info('[PDF-CSS] ✓ Found ' . count($matches[0]) . ' inline style blocks');
                 }
             } catch (\Exception $e) {
                 Log::warning('[PDF-CSS] Warning during CSS processing: ' . $e->getMessage());
             }
 
-            // Process images - Browsershot will handle this automatically
+            // Process images - ensure absolute URLs for remote rendering
             try {
-                Log::info('[PDF-IMG] Processing images for Browsershot rendering');
+                Log::info('[PDF-IMG] Processing images for Browserless rendering');
                 
                 if (preg_match_all('/<img[^>]*src=["\']([^"\']+)["\'][^>]*>/i', $html, $matches)) {
-                    Log::info('[PDF-IMG] Found ' . count($matches[1]) . ' image tags - Browsershot will render them');
+                    Log::info('[PDF-IMG] Found ' . count($matches[1]) . ' image tags - Browserless will process them');
                     
                     foreach ($matches[1] as $index => $src) {
                         Log::info('[PDF-IMG] [IMAGE #' . ($index + 1) . '] src: ' . $src);
@@ -1519,29 +1609,21 @@ class NonAdminController extends Controller
             }
 
             // Create subfolder structure: Proposal_X_Title/EvalTypeFolder/
-            // Truncate title more aggressively to avoid Windows path length limits (260 char max)
-            // Path structure: storage/pdf_temp/{tempId}/Proposal_X_{title}/{evalType}/{filename}
             $proposalTitle = str_replace([' ', '/', '\\', ':', '*', '?', '"', '<', '>', '|'], '_', substr($proposal->title ?? 'Proposal', 0, 30));
             $proposalFolder = $tempDir . '/Proposal_' . $proposalNumber . '_' . $proposalTitle;
             $evalFolder = $proposalFolder . '/' . $evalTypeFolder;
             @mkdir($evalFolder, 0755, true);
             
-            // New filename format: Form{index}_{evaluator_name}.pdf
-            // Sanitize evaluator name: remove special characters and accents
+            // Generate filename
             $evaluatorName = $form['full_name'] ?? 'Evaluator';
-            // Remove accents/diacritics
             $evaluatorName = iconv('UTF-8', 'ASCII//TRANSLIT', $evaluatorName);
-            // Replace spaces and invalid characters with underscores
             $evaluatorName = str_replace([' ', '/', '\\', ':', '*', '?', '"', '<', '>', '|', "'"], '_', $evaluatorName);
-            // Remove any remaining non-alphanumeric characters except underscore
             $evaluatorName = preg_replace('/[^a-zA-Z0-9_]/', '', $evaluatorName);
-            // Limit to 50 characters and remove trailing underscores
             $evaluatorName = rtrim(substr($evaluatorName, 0, 50), '_');
             if (empty($evaluatorName)) {
                 $evaluatorName = 'Evaluator';
             }
             
-            // Generate filename (single PDF for all pages combined)
             $filename = sprintf('Form_%d_%s.pdf', $formIndex + 1, $evaluatorName);
             
             Log::info('[PDF] Output filename: ' . $filename);
@@ -1549,28 +1631,28 @@ class NonAdminController extends Controller
             Log::info('[PDF] PDF path: ' . $pdfPath);
 
             try {
-                Log::info('[PDF] ⏳ Starting PDFMonkey rendering...');
+                Log::info('[PDF] ⏳ Starting Browserless rendering via socket server...');
                 
-                // Use PDFMonkey to render HTML to PDF
-                $pdfMonkey = new PdfMonkeyService();
-                $base64Pdf = $pdfMonkey->generatePdfFromHtml($html, [
-                    'filename' => $filename,
-                ]);
+                // Use RemotePdfService to render HTML to PDF on socket server
+                $pdfService = new RemotePdfService();
+                $remoteFilename = $pdfService->generatePdfFromHtml($html, $filename);
                 
-                if (!$base64Pdf) {
-                    throw new \Exception('PDFMonkey failed to generate PDF');
+                if (!$remoteFilename) {
+                    throw new \Exception('Socket server failed to generate PDF');
                 }
                 
-                // Save the PDF to file
-                if (!$pdfMonkey->savePdfToFile($base64Pdf, $pdfPath)) {
-                    throw new \Exception('Failed to save PDF to file');
+                Log::info('[PDF] ✓ PDF generated on socket server: ' . $remoteFilename);
+                
+                // Download PDF from socket server and save locally
+                if (!$pdfService->downloadPdfToStorage($remoteFilename, basename($pdfPath))) {
+                    throw new \Exception('Failed to download PDF from socket server');
                 }
                 
-                Log::info('[PDF] ✓ PDFMonkey rendering completed');
+                Log::info('[PDF] ✓ Browserless rendering completed and PDF saved locally');
 
                 // Verify PDF was created
                 if (!file_exists($pdfPath)) {
-                    Log::error('[PDF] PDF file does not exist after rendering: ' . $pdfPath);
+                    Log::error('[PDF] PDF file does not exist after download: ' . $pdfPath);
                     throw new \Exception('PDF file was not created');
                 }
 
@@ -1943,4 +2025,7 @@ class NonAdminController extends Controller
             'match' => json_encode($testProgress) === json_encode($retrieved)
         ]);
     }
+
+
 }
+
