@@ -784,22 +784,27 @@ export default function ProposalDefenseEvaluation({ capstone, defenseEval }: { c
                         </button>
                         <button
                             onClick={handleToggleSubmission}
-                            disabled={isSubmitting || !isFormValid()}
+                            disabled={isSubmitting || !isFormValid() || hasUnsavedChanges || isSaving}
                             className="px-6 py-2 rounded-lg font-semibold uppercase text-sm text-white transition-all"
                             style={{ 
                                 backgroundColor: '#27ae60',
-                                opacity: (isSubmitting || !isFormValid()) ? 0.5 : 1,
-                                cursor: (isSubmitting || !isFormValid()) ? 'not-allowed' : 'pointer',
+                                opacity: (isSubmitting || !isFormValid() || hasUnsavedChanges || isSaving) ? 0.5 : 1,
+                                cursor: (isSubmitting || !isFormValid() || hasUnsavedChanges || isSaving) ? 'not-allowed' : 'pointer',
                             }}
                             onMouseEnter={(e) => {
-                                if (!isSubmitting && isFormValid()) {
+                                if (!isSubmitting && isFormValid() && !hasUnsavedChanges && !isSaving) {
                                     e.currentTarget.style.backgroundColor = '#229954';
                                 }
                             }}
                             onMouseLeave={(e) => {
                                 e.currentTarget.style.backgroundColor = '#27ae60';
                             }}
-                            title={!isFormValid() ? 'All scores must be filled, within limits, and a decision must be selected' : ''}
+                            title={
+                                isSaving ? 'Form is currently saving, please wait...' :
+                                !isFormValid() ? 'All scores must be filled, within limits, and a decision must be selected' :
+                                hasUnsavedChanges ? 'Please wait for changes to auto-save before submitting' :
+                                ''
+                            }
                         >
                             {isSubmitting ? 'Updating...' : (isSubmitted ? 'Unsubmit Form' : 'Submit')}
                         </button>
@@ -808,25 +813,42 @@ export default function ProposalDefenseEvaluation({ capstone, defenseEval }: { c
                     </div>
 
                     {/* Submission Requirements Info */}
-                    {!isSubmitted && !isFormValid() && (
-                        <div className="rounded-lg border-2 p-4 mb-6" style={{ borderColor: '#ffc107', backgroundColor: '#fffbf0' }}>
-                            <p style={{ color: '#856404', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem' }}>
-                                ⚠️ Form cannot be submitted yet. Missing requirements:
-                            </p>
-                            <ul style={{ color: '#856404', fontSize: '0.875rem', marginLeft: '1.5rem', lineHeight: '1.6' }}>
-                                {itemCriteria.some((item: any) => !scores[item.id] || scores[item.id] === '') && (
-                                    <li>• All evaluation criteria must have a score</li>
-                                )}
-                                {itemCriteria.some((item: any) => {
-                                    const score = parseFloat(String(scores[item.id] || 0));
-                                    return !isNaN(score) && score > item.max;
-                                }) && (
-                                    <li>• Score cannot exceed the maximum allowed value</li>
-                                )}
-                                {!decision && (
-                                    <li>• A panel decision must be selected</li>
-                                )}
-                            </ul>
+                    {!isSubmitted && (
+                        <div className="rounded-lg border-2 p-4 mb-6" style={{ 
+                            borderColor: isFormValid() && !hasUnsavedChanges && !isSaving ? '#27ae60' : '#ffc107', 
+                            backgroundColor: isFormValid() && !hasUnsavedChanges && !isSaving ? '#f0fdf4' : '#fffbf0' 
+                        }}>
+                            {isFormValid() && !hasUnsavedChanges && !isSaving ? (
+                                <p style={{ color: '#166534', fontSize: '0.875rem', fontWeight: '500' }}>
+                                    ✓ Form is ready for submission
+                                </p>
+                            ) : (
+                                <>
+                                    <p style={{ color: '#856404', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem' }}>
+                                        ⚠️ Form cannot be submitted yet. {hasUnsavedChanges || isSaving ? 'Waiting for save. ' : ''}Missing requirements:
+                                    </p>
+                                    <ul style={{ color: '#856404', fontSize: '0.875rem', marginLeft: '1.5rem', lineHeight: '1.6' }}>
+                                        {isSaving && (
+                                            <li>• Currently saving changes...</li>
+                                        )}
+                                        {hasUnsavedChanges && !isSaving && (
+                                            <li>• Changes will be auto-saved (waiting {Math.ceil((1000 - (Date.now() % 1000)) / 1000)}s)</li>
+                                        )}
+                                        {itemCriteria.some((item: any) => !scores[item.id] || scores[item.id] === '') && (
+                                            <li>• All evaluation criteria must have a score</li>
+                                        )}
+                                        {itemCriteria.some((item: any) => {
+                                            const score = parseFloat(String(scores[item.id] || 0));
+                                            return !isNaN(score) && score > item.max;
+                                        }) && (
+                                            <li>• Score cannot exceed the maximum allowed value</li>
+                                        )}
+                                        {!decision && (
+                                            <li>• A panel decision must be selected</li>
+                                        )}
+                                    </ul>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>

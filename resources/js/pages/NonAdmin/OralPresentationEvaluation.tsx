@@ -548,9 +548,8 @@ export default function OralPresentationEvaluation({ capstone, oralEval }: { cap
                             {proposals.map((proposal, idx) => (
                                 <button
                                     key={proposal.id}
-                                    onClick={() => !isSubmitted && !isSaving && setSelectedProposalIdx(idx)}
-                                    disabled={isSubmitted || isSaving}
-                                    className="px-4 py-3 font-semibold transition-all border-b-4 -mb-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    onClick={() => setSelectedProposalIdx(idx)}
+                                    className="px-4 py-3 font-semibold transition-all border-b-4 -mb-0.5"
                                     style={{
                                         borderColor: selectedProposalIdx === idx ? '#c9a84c' : 'transparent',
                                         color: selectedProposalIdx === idx ? '#0f3460' : '#6b6b6b',
@@ -764,11 +763,25 @@ export default function OralPresentationEvaluation({ capstone, oralEval }: { cap
                         {!isSubmitted ? (
                             <button
                                 onClick={handleSubmit}
-                                disabled={isSaving}
+                                disabled={isSaving || !isFormValid() || hasUnsavedChanges}
                                 className="px-6 py-2 rounded-lg font-semibold uppercase text-sm text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 style={{ backgroundColor: '#27ae60' }}
-                                onMouseEnter={(e) => !isSaving && (e.currentTarget.style.backgroundColor = '#229954')}
-                                onMouseLeave={(e) => !isSaving && (e.currentTarget.style.backgroundColor = '#27ae60')}
+                                onMouseEnter={(e) => {
+                                    if (!isSaving && isFormValid() && !hasUnsavedChanges) {
+                                        e.currentTarget.style.backgroundColor = '#229954';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (!isSaving && isFormValid() && !hasUnsavedChanges) {
+                                        e.currentTarget.style.backgroundColor = '#27ae60';
+                                    }
+                                }}
+                                title={
+                                    isSaving ? 'Saving form...' :
+                                    !isFormValid() ? 'Please fill all required fields and scores' :
+                                    hasUnsavedChanges ? 'Please save changes before submitting' :
+                                    'Submit form'
+                                }
                             >
                                 {isSaving ? 'Submitting...' : 'Submit Form'}
                             </button>
@@ -787,30 +800,51 @@ export default function OralPresentationEvaluation({ capstone, oralEval }: { cap
                     </div>
 
                     {/* Submission Requirements Info */}
-                    {!isSubmitted && !isFormValid() && (
-                        <div className="rounded-lg border-2 p-4 mb-6" style={{ borderColor: '#ffc107', backgroundColor: '#fffbf0' }}>
-                            <p style={{ color: '#856404', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem' }}>
-                                ⚠️ Form cannot be submitted yet. Missing requirements:
-                            </p>
-                            <ul style={{ color: '#856404', fontSize: '0.875rem', marginLeft: '1.5rem', lineHeight: '1.6' }}>
-                                {!formData.evalTime && (
-                                    <li>• Evaluation time must be filled</li>
-                                )}
-                                {!formData.evalDate && (
-                                    <li>• Evaluation date must be filled</li>
-                                )}
-                                {(() => {
-                                    for (let c = 0; c < criteria.length; c++) {
-                                        for (let m = 0; m < teamMembers.length; m++) {
-                                            const key = `${c}_${m}`;
-                                            if (!scores[key] || scores[key] === '') {
-                                                return <li>• All score fields must be filled</li>;
+                    {!isSubmitted && (
+                        <div className="rounded-lg border-2 p-4 mb-6" style={{ 
+                            borderColor: isFormValid() && !hasUnsavedChanges ? '#27ae60' : '#ffc107', 
+                            backgroundColor: isFormValid() && !hasUnsavedChanges ? '#f0fdf4' : '#fffbf0' 
+                        }}>
+                            {isFormValid() && !hasUnsavedChanges ? (
+                                <p style={{ color: '#166534', fontSize: '0.875rem', fontWeight: '500' }}>
+                                    ✓ Form is ready for submission
+                                </p>
+                            ) : (
+                                <>
+                                    <p style={{ color: '#856404', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem' }}>
+                                        ⚠️ Form cannot be submitted yet. {hasUnsavedChanges ? 'Waiting for save. ' : ''}Missing requirements:
+                                    </p>
+                                    <ul style={{ color: '#856404', fontSize: '0.875rem', marginLeft: '1.5rem', lineHeight: '1.6' }}>
+                                        {isSaving && (
+                                            <li>• Currently saving changes...</li>
+                                        )}
+                                        {hasUnsavedChanges && !isSaving && (
+                                            <li>• Changes will be auto-saved (waiting {Math.ceil((2000 - (Date.now() % 2000)) / 1000)}s)</li>
+                                        )}
+                                        {!formData.evalTime && (
+                                            <li>• Evaluation time must be filled</li>
+                                        )}
+                                        {!formData.evalDate && (
+                                            <li>• Evaluation date must be filled</li>
+                                        )}
+                                        {(() => {
+                                            let missingCount = 0;
+                                            for (let c = 0; c < criteria.length; c++) {
+                                                for (let m = 0; m < teamMembers.length; m++) {
+                                                    const key = `${c}_${m}`;
+                                                    if (!scores[key] || scores[key] === '') {
+                                                        missingCount++;
+                                                    }
+                                                }
                                             }
-                                        }
-                                    }
-                                    return null;
-                                })()}
-                            </ul>
+                                            if (missingCount > 0) {
+                                                return <li>• {missingCount} score field{missingCount !== 1 ? 's' : ''} must be filled (all criteria × all members)</li>;
+                                            }
+                                            return null;
+                                        })()}
+                                    </ul>
+                                </>
+                            )}
                         </div>
                     )}
                 </div>

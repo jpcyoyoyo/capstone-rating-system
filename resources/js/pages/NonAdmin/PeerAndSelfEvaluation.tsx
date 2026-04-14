@@ -385,6 +385,39 @@ export default function PeerAndSelfEvaluation({ capstone, selfEval }: { capstone
         }
     };
 
+    // Validation function for submit button
+    const validateRequiredFields = (): boolean => {
+        if (!formData.evalTime) return false;
+        if (!formData.evalDate) return false;
+
+        // Check if all ratings are filled for all criteria and all members
+        for (let c = 0; c < criteria.length; c++) {
+            for (let m = 0; m < memberRatings.length; m++) {
+                if (!ratings[c]?.[m]) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    };
+
+    // Pure validation check for render (no state updates)
+    const isFormValid = (): boolean => {
+        if (!formData.evalTime || !formData.evalDate) return false;
+
+        // Check if all ratings are filled for all criteria and all members
+        for (let c = 0; c < criteria.length; c++) {
+            for (let m = 0; m < memberRatings.length; m++) {
+                if (!ratings[c]?.[m]) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    };
+
     return (
         <>
             <Head title="Peer & Self Evaluation" />
@@ -619,6 +652,24 @@ export default function PeerAndSelfEvaluation({ capstone, selfEval }: { capstone
                         </div>
                     </div>
 
+                    {/* Saving Status Indicator */}
+                    <div className="mb-6 flex items-center gap-4">
+                        {isSaving && (
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#e74c3c', animation: 'pulse 1.5s infinite' }}></div>
+                                <span className="text-sm font-semibold" style={{ color: '#e74c3c' }}>Saving...</span>
+                            </div>
+                        )}
+                        {lastSavedTime && !isSaving && (
+                            <span className="text-xs" style={{ color: '#27ae60' }}>
+                                Last saved: {lastSavedTime.toLocaleTimeString()}
+                            </span>
+                        )}
+                        {hasUnsavedChanges && !isSaving && (
+                            <span className="text-xs font-semibold" style={{ color: '#f39c12' }}>Unsaved changes</span>
+                        )}
+                    </div>
+
                     {/* Actions */}
                     <div className="flex gap-3 justify-center mb-8 flex-wrap">
                         <button
@@ -650,11 +701,25 @@ export default function PeerAndSelfEvaluation({ capstone, selfEval }: { capstone
                         {!isSubmitted ? (
                             <button
                                 onClick={handleSubmit}
-                                disabled={isSaving || isSubmitting}
+                                disabled={isSaving || isSubmitting || !isFormValid() || hasUnsavedChanges}
                                 className="px-6 py-2 rounded-lg font-semibold uppercase text-sm text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 style={{ backgroundColor: '#27ae60' }}
-                                onMouseEnter={(e) => !isSaving && !isSubmitting && (e.currentTarget.style.backgroundColor = '#229954')}
-                                onMouseLeave={(e) => !isSaving && !isSubmitting && (e.currentTarget.style.backgroundColor = '#27ae60')}
+                                onMouseEnter={(e) => {
+                                    if (!isSaving && !isSubmitting && isFormValid() && !hasUnsavedChanges) {
+                                        e.currentTarget.style.backgroundColor = '#229954';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (!isSaving && !isSubmitting && isFormValid() && !hasUnsavedChanges) {
+                                        e.currentTarget.style.backgroundColor = '#27ae60';
+                                    }
+                                }}
+                                title={
+                                    isSaving ? 'Saving form...' :
+                                    !isFormValid() ? 'Please fill all required fields and ratings' :
+                                    hasUnsavedChanges ? 'Please save changes before submitting' :
+                                    'Submit form'
+                                }
                             >
                                 {isSubmitting ? 'Submitting...' : 'Submit Form'}
                             </button>
@@ -671,6 +736,54 @@ export default function PeerAndSelfEvaluation({ capstone, selfEval }: { capstone
                             </button>
                         )}
                     </div>
+
+                    {/* Submission Requirements Info */}
+                    {!isSubmitted && (
+                        <div className="rounded-lg border-2 p-4 mb-6" style={{ 
+                            borderColor: isFormValid() && !hasUnsavedChanges ? '#27ae60' : '#ffc107', 
+                            backgroundColor: isFormValid() && !hasUnsavedChanges ? '#f0fdf4' : '#fffbf0' 
+                        }}>
+                            {isFormValid() && !hasUnsavedChanges ? (
+                                <p style={{ color: '#166534', fontSize: '0.875rem', fontWeight: '500' }}>
+                                    ✓ Form is ready for submission
+                                </p>
+                            ) : (
+                                <>
+                                    <p style={{ color: '#856404', fontSize: '0.875rem', fontWeight: '500', marginBottom: '0.5rem' }}>
+                                        ⚠️ Form cannot be submitted yet. {hasUnsavedChanges ? 'Waiting for save. ' : ''}Missing requirements:
+                                    </p>
+                                    <ul style={{ color: '#856404', fontSize: '0.875rem', marginLeft: '1.5rem', lineHeight: '1.6' }}>
+                                        {isSaving && (
+                                            <li>• Currently saving changes...</li>
+                                        )}
+                                        {hasUnsavedChanges && !isSaving && (
+                                            <li>• Changes will be auto-saved (waiting {Math.ceil((2000 - (Date.now() % 2000)) / 1000)}s)</li>
+                                        )}
+                                        {!formData.evalTime && (
+                                            <li>• Evaluation time must be filled</li>
+                                        )}
+                                        {!formData.evalDate && (
+                                            <li>• Evaluation date must be filled</li>
+                                        )}
+                                        {(() => {
+                                            let missingCount = 0;
+                                            for (let c = 0; c < criteria.length; c++) {
+                                                for (let m = 0; m < memberRatings.length; m++) {
+                                                    if (!ratings[c]?.[m]) {
+                                                        missingCount++;
+                                                    }
+                                                }
+                                            }
+                                            if (missingCount > 0) {
+                                                return <li>• {missingCount} rating field{missingCount !== 1 ? 's' : ''} must be filled (all criteria × all members)</li>;
+                                            }
+                                            return null;
+                                        })()}
+                                    </ul>
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 

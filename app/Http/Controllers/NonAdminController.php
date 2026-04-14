@@ -175,7 +175,8 @@ class NonAdminController extends Controller
             $defenseEval['forms'][$formIndex]['date'] = $validated['evalDate'] ?? $defenseEval['forms'][$formIndex]['date'] ?? '';
             $defenseEval['forms'][$formIndex]['form_data']['scores'] = $validated['scores'] ?? $defenseEval['forms'][$formIndex]['form_data']['scores'] ?? [];
             $defenseEval['forms'][$formIndex]['form_data']['decision'] = $validated['decision'] ?? $defenseEval['forms'][$formIndex]['form_data']['decision'] ?? '';
-            $defenseEval['forms'][$formIndex]['form_data']['comments'] = $validated['comments'] ?? $defenseEval['forms'][$formIndex]['form_data']['comments'] ?? '';
+            // For comments, check the raw request input to allow empty strings - don't fall back to old value if key exists in request
+            $defenseEval['forms'][$formIndex]['form_data']['comments'] = $request->has('comments') ? ($request->input('comments') ?? '') : ($defenseEval['forms'][$formIndex]['form_data']['comments'] ?? '');
 
             // Save back to database
             $proposal->defense_eval = json_encode($defenseEval);
